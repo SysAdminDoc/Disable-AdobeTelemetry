@@ -1,3 +1,5 @@
+<p align="center"><img src="icon.svg" width="128" height="128" alt="Disable-AdobeTelemetry"></p>
+
 # Disable-AdobeTelemetry
 
 A PowerShell script that comprehensively disables Adobe's background telemetry, analytics, in-app marketing (GrowthSDK), and persistent background processes that run even after closing Adobe applications.
