@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <rect width="128" height="128" rx="24" fill="#1a1a2e"/>
-  <path d="M64 28L44 90h12l4-12h8l4 12h12L64 28zm0 22l6 18h-12l6-18z" fill="#e74c3c"/>
-  <circle cx="64" cy="64" r="32" stroke="#e74c3c" stroke-width="4" fill="none" opacity="0.4"/>
-  <line x1="40" y1="88" x2="88" y2="40" stroke="#2ecc71" stroke-width="5" stroke-linecap="round"/>
-  <text x="64" y="112" text-anchor="middle" fill="#7f8c8d" font-family="Segoe UI,sans-serif" font-size="10" font-weight="600">ADOBE BLOCK</text>
-</svg>
