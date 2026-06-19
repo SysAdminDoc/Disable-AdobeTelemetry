@@ -2,7 +2,7 @@
 
 # Disable-AdobeTelemetry
 
-![Version](https://img.shields.io/badge/version-v1.1.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-PowerShell-lightgrey)
+![Version](https://img.shields.io/badge/version-v2.0.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-PowerShell-lightgrey)
 
 A PowerShell script that comprehensively disables Adobe's background telemetry, analytics, in-app marketing (GrowthSDK), and persistent background processes that run even after closing Adobe applications.
 
@@ -72,9 +72,24 @@ For GrowthSDK, a similar approach is used: the directory is replaced with a read
 ```powershell
 # Right-click PowerShell → Run as Administrator
 .\Disable-AdobeTelemetry.ps1
+
+# Preview what would change without writing anything
+.\Disable-AdobeTelemetry.ps1 -DryRun
+
+# Run only specific phases (Kill, GrowthSDK, CCXProcess, IPCBroker, Tasks, Services, Registry, Firewall, Hosts, Acrobat, Startup)
+.\Disable-AdobeTelemetry.ps1 -Only Firewall,Hosts
+
+# Run everything except process killing
+.\Disable-AdobeTelemetry.ps1 -Skip Kill
+
+# Check current status of all protections
+.\Disable-AdobeTelemetry.ps1 -StatusOnly
+
+# Reverse all changes
+.\Disable-AdobeTelemetry.ps1 -Undo
 ```
 
-The script presents a confirmation prompt before making any changes and offers an optional reboot at completion.
+The script executes immediately without confirmation prompts and recommends a reboot at completion.
 
 ### Best Results
 
@@ -96,15 +111,11 @@ CC application updates may restore disabled executables. The IFEO debugger redir
 
 ## Reversal
 
-To undo all changes:
+```powershell
+.\Disable-AdobeTelemetry.ps1 -Undo
+```
 
-1. Rename `CCXProcess.exe.disabled` back to `CCXProcess.exe` in the Adobe Creative Cloud Experience directory
-2. Remove the IFEO registry key at `HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\CCXProcess.exe`
-3. Delete the GrowthSDK blocker file and remove the deny ACLs
-4. Re-enable disabled services: `Set-Service -Name AGSService -StartupType Automatic` (repeat for each service)
-5. Remove firewall rules named `Block Adobe Telemetry*`
-6. Remove the hosts file block between the `# --- Adobe Telemetry Block ---` markers
-7. Re-enable scheduled tasks and restore startup registry entries
+The `-Undo` switch automatically reverses all changes: re-enables services and scheduled tasks, removes firewall rules, removes the hosts file block, removes IFEO debugger redirects, restores renamed executables, removes GrowthSDK blocker files, removes registry policy overrides, and re-enables startup entries.
 
 ## License
 
