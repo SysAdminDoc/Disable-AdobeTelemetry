@@ -42,7 +42,9 @@ ada.adobe.io                assets.adobedtm.com         geo2.adobe.com
 pv2.adobe.com               lcs-cops.adobe.io           lcs-robs.adobe.io
 sstats.adobe.com             stats.adobe.com             ic.adobe.io
 cc-cdn.adobe.com             p13n.adobe.io               platform.adobe.io
-use.typekit.net              adobeid-na1.services.adobe.com
+adobeid-na1.services.adobe.com                           na1r.services.adobe.com
+hlrc.adobegenuine.com        genuine.adobe.com           crs.cr.adobe.com
+prod-rel-ffc-ccm.oobesaas.adobe.com
 r.openx.net                 dpm.demdex.net              bam.nr-data.net
 fls.doubleclick.net
 ```

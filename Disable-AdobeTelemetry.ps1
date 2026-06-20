@@ -66,7 +66,7 @@ if (-not $isAdmin) {
 
 # ── Config ──────────────────────────────────────────────────────────────────────
 
-$ErrorActionPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Continue'
 
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
 
@@ -199,15 +199,13 @@ $TelemetryDomains = @(
     'fls.doubleclick.net'
     'ic.adobe.io'
     'cc-cdn.adobe.com'
-    'use.typekit.net'           # Optional - font telemetry
-    'p13n.adobe.io'             # Personalization / A-B testing
-    'platform.adobe.io'         # Platform analytics
-    'adobeid-na1.services.adobe.com' # Genuine check
+    'p13n.adobe.io'
+    'platform.adobe.io'
+    'adobeid-na1.services.adobe.com'
     'na1r.services.adobe.com'
     'hlrc.adobegenuine.com'
     'genuine.adobe.com'
-    'prod-rel-ffc-ccm.oobelib.com'
-    'oobe.setup.office.com'     # Adobe OOBE
+    'prod-rel-ffc-ccm.oobesaas.adobe.com'
     'crs.cr.adobe.com'
 )
 
@@ -729,7 +727,7 @@ function Disable-CCXProcess {
         # Save original IFEO value before overwriting so restore can be exact
         if (Test-Path $ifeoPath) {
             $originalDebugger = (Get-ItemProperty -Path $ifeoPath -Name 'Debugger' -ErrorAction SilentlyContinue).Debugger
-            if ($originalDebugger -and $originalDebugger -ne 'nul') {
+            if ($originalDebugger -and $originalDebugger -notlike '*AdobeTelemetryBlock.invalid') {
                 $backupDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry'
                 if (-not (Test-Path $backupDir)) { New-Item -Path $backupDir -ItemType Directory -Force | Out-Null }
                 $ifeoBackup = Join-Path $backupDir 'ifeo-original-values.txt'
@@ -740,7 +738,8 @@ function Disable-CCXProcess {
         } else {
             New-Item -Path $ifeoPath -Force | Out-Null
         }
-        Set-ItemProperty -Path $ifeoPath -Name 'Debugger' -Value 'nul' -Type String -Force
+        $ifeoTarget = Join-Path $env:SystemRoot 'System32\AdobeTelemetryBlock.invalid'
+        Set-ItemProperty -Path $ifeoPath -Name 'Debugger' -Value $ifeoTarget -Type String -Force
         Write-Status 'Set IFEO debugger redirect for CCXProcess.exe (failsafe)' -Type Success
     }
 
