@@ -40,6 +40,11 @@
     Standard (default - full protection), Aggressive (adds font/library domains).
     User -Only/-Skip flags override profile defaults.
 
+.PARAMETER Launcher
+    Non-destructive mode: kills telemetry processes, launches the specified Adobe
+    app, waits for it to exit, then re-kills telemetry. No permanent system changes.
+    Accepts app names: Photoshop, Illustrator, Premiere, AfterEffects, InDesign, etc.
+
 .NOTES
     Author  : Matt (Maven Imaging)
     Version : 2.1.0
@@ -53,7 +58,8 @@ param(
     [string[]]$Only,
     [string[]]$Skip,
     [ValidateSet('Minimal','Standard','Aggressive')]
-    [string]$Profile = 'Standard'
+    [string]$Profile = 'Standard',
+    [string]$Launcher
 )
 
 # ── Auto-Elevate ─────────────────────────────────────────────────────────────
@@ -68,6 +74,7 @@ if (-not $isAdmin) {
     if ($Only)       { $argList += '-Only'; $argList += ($Only -join ',') }
     if ($Skip)       { $argList += '-Skip'; $argList += ($Skip -join ',') }
     if ($Profile -ne 'Standard') { $argList += '-Profile'; $argList += $Profile }
+    if ($Launcher) { $argList += '-Launcher'; $argList += "`"$Launcher`"" }
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     exit 0
 }
@@ -1529,7 +1536,70 @@ function Show-Summary {
     Write-Host ''
 }
 
+# ── Launcher Mode ──────────────────────────────────────────────────────────────
+
+function Invoke-CleanLauncher {
+    param([string]$AppName)
+
+    # Discover the Adobe app executable
+    $appExe = $null
+    $appMap = @{
+        'Photoshop'       = 'Photoshop.exe'
+        'Illustrator'     = 'Illustrator.exe'
+        'Premiere'        = 'Adobe Premiere Pro.exe'
+        'PremierePro'     = 'Adobe Premiere Pro.exe'
+        'AfterEffects'    = 'AfterFX.exe'
+        'InDesign'        = 'InDesign.exe'
+        'Lightroom'       = 'Lightroom.exe'
+        'LightroomClassic' = 'Lightroom.exe'
+        'Audition'        = 'Adobe Audition.exe'
+        'Animate'         = 'Animate.exe'
+        'MediaEncoder'    = 'Adobe Media Encoder.exe'
+    }
+
+    $exeName = $appMap[$AppName]
+    if (-not $exeName) {
+        $exeName = "$AppName.exe"
+    }
+
+    foreach ($installPath in $script:AdobeInstallPaths) {
+        if (-not (Test-Path $installPath)) { continue }
+        $found = Get-ChildItem -Path $installPath -Filter $exeName -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $appExe = $found.FullName; break }
+    }
+
+    if (-not $appExe) {
+        Write-Status "Could not find $exeName in any Adobe install path" -Type Error
+        exit 1
+    }
+
+    Write-Status "Clean Launcher: $AppName" -Type Header
+    Write-Status "Executable: $appExe" -Type Info
+
+    # Kill telemetry processes before launch
+    Stop-AdobeProcesses
+
+    # Launch the app
+    Write-Status "Launching $AppName..." -Type Info
+    $proc = Start-Process -FilePath $appExe -PassThru
+
+    Write-Status "Waiting for $AppName to exit (PID $($proc.Id))..." -Type Info
+    $proc.WaitForExit()
+    Write-Status "$AppName exited" -Type Info
+
+    # Re-kill telemetry processes after exit
+    Start-Sleep -Seconds 2
+    Stop-AdobeProcesses
+    Write-Status 'Telemetry processes cleaned up' -Type Success
+}
+
 # ── Main Execution ──────────────────────────────────────────────────────────────
+
+# Handle -Launcher mode before the standard flow
+if ($Launcher) {
+    Invoke-CleanLauncher -AppName $Launcher
+    exit 0
+}
 
 Write-Host ''
 Write-Host '  =============================================' -ForegroundColor Cyan
