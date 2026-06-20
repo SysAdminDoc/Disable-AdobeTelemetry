@@ -35,6 +35,11 @@
 .PARAMETER Skip
     Comma-separated list of phases to skip. Same valid phase names as -Only.
 
+.PARAMETER Profile
+    Blocking intensity: Minimal (telemetry domains + process kill only),
+    Standard (default - full protection), Aggressive (adds font/library domains).
+    User -Only/-Skip flags override profile defaults.
+
 .NOTES
     Author  : Matt (Maven Imaging)
     Version : 2.1.0
@@ -46,7 +51,9 @@ param(
     [switch]$StatusOnly,
     [switch]$DryRun,
     [string[]]$Only,
-    [string[]]$Skip
+    [string[]]$Skip,
+    [ValidateSet('Minimal','Standard','Aggressive')]
+    [string]$Profile = 'Standard'
 )
 
 # ── Auto-Elevate ─────────────────────────────────────────────────────────────
@@ -60,6 +67,7 @@ if (-not $isAdmin) {
     if ($DryRun)     { $argList += '-DryRun' }
     if ($Only)       { $argList += '-Only'; $argList += ($Only -join ',') }
     if ($Skip)       { $argList += '-Skip'; $argList += ($Skip -join ',') }
+    if ($Profile -ne 'Standard') { $argList += '-Profile'; $argList += $Profile }
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     exit 0
 }
@@ -121,6 +129,11 @@ foreach ($p in ($Only + $Skip)) {
         Write-Host "       Valid phases: $($script:ValidPhases -join ', ')" -ForegroundColor Yellow
         exit 1
     }
+}
+
+# Apply profile-based phase defaults (user -Only/-Skip overrides take precedence)
+if (-not $Only -and -not $Skip -and $Profile -eq 'Minimal') {
+    $Skip = @('GrowthSDK', 'CCXProcess', 'Services', 'Tasks', 'Registry', 'Acrobat', 'Startup')
 }
 
 function Test-PhaseEnabled {
@@ -190,26 +203,40 @@ $Services = @(
 )
 
 # Adobe telemetry / analytics domains
-$TelemetryDomains = @(
+# Telemetry domains - tiered by profile
+$TelemetryDomainsMinimal = @(
     'cc-api-data.adobe.io'
-    'notify.adobe.io'
-    'prod.adobegc.com'
     'ada.adobe.io'
     'assets.adobedtm.com'
+    'sstats.adobe.com'
+    'stats.adobe.com'
+    'ic.adobe.io'
+    'p13n.adobe.io'
+    'fp.adobestats.io'
+    'r.openx.net'
+    'dpm.demdex.net'
+    'adobe.demdex.net'
+    'adobedc.demdex.net'
+    'bam.nr-data.net'
+    'fls.doubleclick.net'
+    'hbrcv.adobe.com'
+    'crs.cr.adobe.com'
+    'crlog-crcn.adobe.com'
+    'aepxlg.adobe.com'
+    'utut-service.adobe.com'
+    'senseimds.adobe.io'
+    'cai-splunk-proxy.adobe.io'
+    'detect-ccd.creativecloud.adobe.com'
+)
+$TelemetryDomainsStandard = $TelemetryDomainsMinimal + @(
+    'notify.adobe.io'
+    'prod.adobegc.com'
     'geo2.adobe.com'
     'pv2.adobe.com'
     'lcs-cops.adobe.io'
     'lcs-robs.adobe.io'
     'lcs-ulecs.adobe.io'
-    'sstats.adobe.com'
-    'stats.adobe.com'
-    'r.openx.net'
-    'dpm.demdex.net'
-    'bam.nr-data.net'
-    'fls.doubleclick.net'
-    'ic.adobe.io'
     'cc-cdn.adobe.com'
-    'p13n.adobe.io'
     'platform.adobe.io'
     'adobeid-na1.services.adobe.com'
     'na1r.services.adobe.com'
@@ -217,23 +244,27 @@ $TelemetryDomains = @(
     'genuine.adobe.com'
     'prod.adobegenuine.com'
     'prod-rel-ffc-ccm.oobesaas.adobe.com'
-    'crs.cr.adobe.com'
-    'crlog-crcn.adobe.com'
-    'hbrcv.adobe.com'
-    'fp.adobestats.io'
-    'adobe.demdex.net'
-    'adobedc.demdex.net'
     'odin.adobe.com'
     'armmf.adobe.com'
-    'aepxlg.adobe.com'
-    'utut-service.adobe.com'
-    'senseimds.adobe.io'
-    'cai-splunk-proxy.adobe.io'
     'client.messaging.adobe.com'
     'server.messaging.adobe.com'
     'ui.messaging.adobe.com'
-    'detect-ccd.creativecloud.adobe.com'
 )
+$TelemetryDomainsAggressive = $TelemetryDomainsStandard + @(
+    'use.typekit.net'
+    'p.typekit.net'
+    'data.typekit.net'
+    'cctypekit.adobe.io'
+    'cclibraries-defaults-cdn.adobe.com'
+    'services.adobe.com'
+)
+
+# Select domain list based on profile
+$TelemetryDomains = switch ($Profile) {
+    'Minimal'    { $TelemetryDomainsMinimal }
+    'Aggressive' { $TelemetryDomainsAggressive }
+    default      { $TelemetryDomainsStandard }
+}
 
 # ── Dynamic Path Detection ────────────────────────────────────────────────────
 # Detect Adobe install paths from registry instead of hard-coding Program Files
@@ -1512,6 +1543,9 @@ if ($DryRun) {
     Write-Host '  *** DRY RUN MODE - No changes will be made ***' -ForegroundColor Magenta
 }
 
+if ($Profile -ne 'Standard') {
+    Write-Host "  Profile: $Profile" -ForegroundColor Yellow
+}
 if ($Only -and $Only.Count -gt 0) {
     Write-Host "  Phases: $($Only -join ', ')" -ForegroundColor Yellow
 }
@@ -1524,6 +1558,7 @@ $logHeader = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Disable-AdobeTelemetry
 if ($Undo)       { $logHeader += ' (UNDO mode)' }
 if ($StatusOnly) { $logHeader += ' (STATUS mode)' }
 if ($DryRun)     { $logHeader += ' (DRY RUN mode)' }
+if ($Profile -ne 'Standard') { $logHeader += " (Profile: $Profile)" }
 if ($Only)       { $logHeader += " (Only: $($Only -join ','))" }
 if ($Skip)       { $logHeader += " (Skip: $($Skip -join ','))" }
 Add-Content -Path $script:LogFile -Value $logHeader -ErrorAction SilentlyContinue

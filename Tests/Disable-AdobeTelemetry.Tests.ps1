@@ -10,13 +10,17 @@ BeforeAll {
     # We cannot dot-source the whole script (it auto-elevates and runs), so we
     # extract testable pieces via AST or regex.
 
-    # Extract $TelemetryDomains array from script text
-    if ($scriptContent -match '\$TelemetryDomains\s*=\s*@\(([\s\S]*?)\)') {
-        $domainBlock = $Matches[1]
-        $script:TelemetryDomains = $domainBlock -split "`n" |
+    # Extract all domain strings from all tier arrays (Minimal + Standard + Aggressive)
+    $script:TelemetryDomains = @()
+    $allMatches = [regex]::Matches($scriptContent, "TelemetryDomains\w*\s*=\s*(?:[^@]*)?@\(([^)]+)\)")
+    foreach ($m in $allMatches) {
+        $domainBlock = $m.Groups[1].Value
+        $domains = $domainBlock -split "`n" |
             ForEach-Object { $_.Trim().Trim("'").Trim('"') } |
             Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -ne '' }
+        $script:TelemetryDomains += $domains
     }
+    $script:TelemetryDomains = $script:TelemetryDomains | Sort-Object -Unique
 
     # Extract $AdobeProcesses array
     if ($scriptContent -match '\$AdobeProcesses\s*=\s*@\(([\s\S]*?)\)') {
@@ -78,8 +82,18 @@ Describe 'Domain List Validation' {
         }
     }
 
-    It 'does not contain use.typekit.net (breaks Adobe Fonts)' {
-        $script:TelemetryDomains | Should -Not -Contain 'use.typekit.net'
+    It 'does not contain use.typekit.net in Minimal or Standard tiers' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $standardDomains = @()
+        foreach ($tier in @('TelemetryDomainsMinimal', 'TelemetryDomainsStandard')) {
+            $matches = [regex]::Match($scriptContent, "$tier\s*=\s*(?:[^@]*)?@\(([^)]+)\)")
+            if ($matches.Success) {
+                $standardDomains += $matches.Groups[1].Value -split "`n" |
+                    ForEach-Object { $_.Trim().Trim("'").Trim('"') } |
+                    Where-Object { $_ -and $_ -notmatch '^\s*#' }
+            }
+        }
+        $standardDomains | Should -Not -Contain 'use.typekit.net'
     }
 
     It 'all domains have valid format' {
