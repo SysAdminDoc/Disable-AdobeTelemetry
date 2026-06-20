@@ -281,6 +281,25 @@ $TelemetryDomains = switch ($Profile) {
     default      { $TelemetryDomainsStandard }
 }
 
+# Optionally merge upstream domains from a-dove-is-dumb community list
+$script:UpstreamUrl = 'https://a.dove.isdumb.one/list.txt'
+function Merge-UpstreamDomains {
+    try {
+        $raw = (Invoke-WebRequest -Uri $script:UpstreamUrl -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop).Content
+        $upstream = $raw -split "`n" |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -match '\.' }
+        if ($upstream.Count -gt 0) {
+            $before = $script:TelemetryDomains.Count
+            $script:TelemetryDomains = ($script:TelemetryDomains + $upstream) | Sort-Object -Unique
+            $added = $script:TelemetryDomains.Count - $before
+            Write-Status "Merged $added upstream domains ($($script:TelemetryDomains.Count) total)" -Type Success
+        }
+    } catch {
+        Write-Status "Could not fetch upstream domain list (using built-in list)" -Type Warning
+    }
+}
+
 # ── Dynamic Path Detection ────────────────────────────────────────────────────
 # Detect Adobe install paths from registry instead of hard-coding Program Files
 
@@ -1771,6 +1790,11 @@ if (-not $DryRun) {
     }
 } else {
     Write-Status 'Would create system restore point' -Type DryRun
+}
+
+# Merge upstream domains if Firewall or Hosts phases will run
+if ((Test-PhaseEnabled 'Firewall') -or (Test-PhaseEnabled 'Hosts')) {
+    Merge-UpstreamDomains
 }
 
 # Execute each phase if enabled
