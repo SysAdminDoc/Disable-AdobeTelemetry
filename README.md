@@ -21,15 +21,15 @@ Simply killing these processes or deleting their files is temporary — Adobe ap
 
 | Action | Details |
 |---|---|
-| **Kill Processes** | Terminates CCXProcess, CCLibrary, AdobeIPCBroker, Adobe Desktop Service, AGSService, AdobeNotificationClient, AdobeUpdateService, and Adobe-spawned Node.js instances |
+| **Kill Processes** | Terminates CCXProcess, CCLibrary, AdobeIPCBroker, Adobe Desktop Service, AGSService, AGMService, AdobeNotificationClient, AdobeUpdateService, CoreSync, LogTransport2, AdobeCollabSync, CRWindowsClientService, CRLogTransport, acrotray, Adobe CEF Helper, and Adobe-spawned Node.js instances |
 | **Neutralize GrowthSDK** | Removes the GrowthSDK directory across all user profiles and plants a read-only, system-hidden, ACL-denied blocker file in its place so it cannot be recreated |
 | **Disable CCXProcess** | Renames the executable to `.disabled`, applies IFEO debugger redirect as a failsafe, and strips execute permissions via ACL deny |
 | **Firewall AdobeIPCBroker** | Blocks outbound connections only — IPCBroker is required for Premiere/Photoshop to launch, so it is left functional but firewalled. The script also auto-restores IPCBroker if a previous run disabled it. |
 | **Disable Scheduled Tasks** | Disables all Adobe-related scheduled tasks (AdobeGCInvoker, Genuine Monitor, updaters, etc.) |
 | **Disable Services** | Stops and sets to Disabled: AGSService, AGMService, AdobeARMservice, AdobeUpdateService, CCXProcess |
 | **Registry Policies** | Sets `DisableUsageData`, `DisableGrowth`, `DisableAutoupdates`, `AgsDisabled`, and disables the usage framework under enterprise policy keys |
-| **Firewall Rules** | Resolves and blocks ~20 Adobe telemetry domains by IP, plus blocks known telemetry executables by program path |
-| **Hosts File** | Sinkhole routes all Adobe telemetry/analytics domains to `0.0.0.0` |
+| **Firewall Rules** | Resolves and blocks ~40 Adobe telemetry domains by IP (TCP+UDP), plus blocks known telemetry executables by program path |
+| **Hosts File** | Sinkhole routes all Adobe telemetry/analytics domains to `0.0.0.0`, detects and removes Adobe WAM hosts injections, flushes DNS cache |
 | **Startup Entries** | Disables Adobe auto-run registry entries across HKLM and HKCU |
 
 ## Blocked Domains
@@ -37,15 +37,21 @@ Simply killing these processes or deleting their files is temporary — Adobe ap
 The script blocks outbound connections to the following Adobe telemetry and analytics endpoints:
 
 ```
-cc-api-data.adobe.io        notify.adobe.io             prod.adobegc.com
-ada.adobe.io                assets.adobedtm.com         geo2.adobe.com
-pv2.adobe.com               lcs-cops.adobe.io           lcs-robs.adobe.io
-sstats.adobe.com             stats.adobe.com             ic.adobe.io
-cc-cdn.adobe.com             p13n.adobe.io               platform.adobe.io
-adobeid-na1.services.adobe.com                           na1r.services.adobe.com
-hlrc.adobegenuine.com        genuine.adobe.com           crs.cr.adobe.com
+cc-api-data.adobe.io         notify.adobe.io              prod.adobegc.com
+ada.adobe.io                 assets.adobedtm.com          geo2.adobe.com
+pv2.adobe.com                lcs-cops.adobe.io            lcs-robs.adobe.io
+lcs-ulecs.adobe.io           sstats.adobe.com             stats.adobe.com
+ic.adobe.io                  cc-cdn.adobe.com             p13n.adobe.io
+platform.adobe.io            adobeid-na1.services.adobe.com
+na1r.services.adobe.com      hlrc.adobegenuine.com        genuine.adobe.com
+prod.adobegenuine.com        crs.cr.adobe.com             crlog-crcn.adobe.com
+hbrcv.adobe.com              fp.adobestats.io             adobe.demdex.net
+adobedc.demdex.net           odin.adobe.com               armmf.adobe.com
+aepxlg.adobe.com             utut-service.adobe.com       senseimds.adobe.io
+cai-splunk-proxy.adobe.io    client.messaging.adobe.com   server.messaging.adobe.com
+ui.messaging.adobe.com       detect-ccd.creativecloud.adobe.com
 prod-rel-ffc-ccm.oobesaas.adobe.com
-r.openx.net                 dpm.demdex.net              bam.nr-data.net
+r.openx.net                  dpm.demdex.net               bam.nr-data.net
 fls.doubleclick.net
 ```
 

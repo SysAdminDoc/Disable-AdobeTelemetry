@@ -158,6 +158,15 @@ $AdobeProcesses = @(
     'AdobeUpdateService'
     'armsvc'
     'AGSService'
+    'AGMService'
+    'CoreSync'
+    'LogTransport2'
+    'AdobeCollabSync'
+    'CRWindowsClientService'
+    'CRLogTransport'
+    'acrotray'
+    'AcroTray'
+    'Adobe CEF Helper'
     'node'  # Adobe CEF/Node helpers - filtered by path below
 )
 
@@ -191,6 +200,7 @@ $TelemetryDomains = @(
     'pv2.adobe.com'
     'lcs-cops.adobe.io'
     'lcs-robs.adobe.io'
+    'lcs-ulecs.adobe.io'
     'sstats.adobe.com'
     'stats.adobe.com'
     'r.openx.net'
@@ -205,8 +215,24 @@ $TelemetryDomains = @(
     'na1r.services.adobe.com'
     'hlrc.adobegenuine.com'
     'genuine.adobe.com'
+    'prod.adobegenuine.com'
     'prod-rel-ffc-ccm.oobesaas.adobe.com'
     'crs.cr.adobe.com'
+    'crlog-crcn.adobe.com'
+    'hbrcv.adobe.com'
+    'fp.adobestats.io'
+    'adobe.demdex.net'
+    'adobedc.demdex.net'
+    'odin.adobe.com'
+    'armmf.adobe.com'
+    'aepxlg.adobe.com'
+    'utut-service.adobe.com'
+    'senseimds.adobe.io'
+    'cai-splunk-proxy.adobe.io'
+    'client.messaging.adobe.com'
+    'server.messaging.adobe.com'
+    'ui.messaging.adobe.com'
+    'detect-ccd.creativecloud.adobe.com'
 )
 
 # ── Dynamic Path Detection ────────────────────────────────────────────────────
@@ -552,19 +578,28 @@ function Block-AdobeFirewall {
         if ($DryRun) {
             Write-Status "Would block $($resolvedIPs.Count) telemetry IPs via firewall" -Type DryRun
         } else {
-            New-NetFirewallRule -DisplayName 'Block Adobe Telemetry - Outbound IPs' `
+            New-NetFirewallRule -DisplayName 'Block Adobe Telemetry - Outbound IPs (TCP)' `
                 -Direction Outbound `
                 -Action Block `
                 -RemoteAddress $resolvedIPs `
                 -Protocol TCP `
                 -Profile Any `
                 -Enabled True `
-                -Description 'Blocks outbound connections to Adobe telemetry/analytics servers.' |
+                -Description 'Blocks outbound TCP to Adobe telemetry/analytics servers.' |
                 Out-Null
-            Write-Status "Blocked $($resolvedIPs.Count) telemetry IPs via firewall" -Type Success
+            New-NetFirewallRule -DisplayName 'Block Adobe Telemetry - Outbound IPs (UDP)' `
+                -Direction Outbound `
+                -Action Block `
+                -RemoteAddress $resolvedIPs `
+                -Protocol UDP `
+                -Profile Any `
+                -Enabled True `
+                -Description 'Blocks outbound UDP/QUIC to Adobe telemetry/analytics servers.' |
+                Out-Null
+            Write-Status "Blocked $($resolvedIPs.Count) telemetry IPs via firewall (TCP+UDP)" -Type Success
         }
         $script:Counters.FirewallIPsBlocked = $resolvedIPs.Count
-        $script:Counters.FirewallRulesAdded++
+        $script:Counters.FirewallRulesAdded += 2
     } else {
         Write-Status 'Could not resolve any telemetry domains (offline?)' -Type Warning
     }
@@ -576,7 +611,18 @@ function Block-AdobeFirewall {
         "$env:ProgramFiles\Common Files\Adobe\OOBE\PDApp\UWA\UpdaterStartupUtility.exe"
         "${env:ProgramFiles(x86)}\Common Files\Adobe\OOBE\PDApp\core\PDApp.exe"
         "${env:ProgramFiles(x86)}\Common Files\Adobe\AdobeGCClient\AdobeGCClient.exe"
+        "$env:ProgramFiles\Common Files\Adobe\CoreSyncExtension\CoreSync.exe"
+        "${env:ProgramFiles(x86)}\Common Files\Adobe\CoreSyncExtension\CoreSync.exe"
     )
+    # Dynamically discover additional telemetry executables under Adobe install paths
+    $telemetryExeNames = @('LogTransport2.exe', 'CRWindowsClientService.exe', 'CRLogTransport.exe', 'AdobeCollabSync.exe')
+    foreach ($installPath in $script:AdobeInstallPaths) {
+        if (-not (Test-Path $installPath)) { continue }
+        foreach ($exeName in $telemetryExeNames) {
+            $found = Get-ChildItem -Path $installPath -Filter $exeName -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $adobeExePaths += $found.FullName }
+        }
+    }
 
     foreach ($exePath in $adobeExePaths) {
         if (Test-Path $exePath) {
@@ -631,6 +677,16 @@ function Block-AdobeHostsFile {
     Copy-Item -Path $hostsPath -Destination $backupPath -Force -ErrorAction SilentlyContinue
     Write-Status "Hosts file backed up to $backupPath" -Type Info
 
+    # Remove Adobe WAM injected entries if present
+    $wamMarker = '# Adobe Creative Cloud WAM - Start'
+    $wamEndMarker = '# Adobe Creative Cloud WAM - End'
+    if ($hostsContent -match [regex]::Escape($wamMarker)) {
+        $wamPattern = "(?s)\r?\n?$([regex]::Escape($wamMarker)).*?$([regex]::Escape($wamEndMarker))\r?\n?"
+        $hostsContent = $hostsContent -replace $wamPattern, ''
+        Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding ASCII
+        Write-Status 'Removed Adobe WAM hosts injection' -Type Success
+    }
+
     # Remove previous block if it exists (idempotent refresh)
     if ($hostsContent -match [regex]::Escape($marker)) {
         $pattern = "(?s)$([regex]::Escape($marker)).*?$([regex]::Escape($endMarker))\r?\n?"
@@ -649,6 +705,10 @@ function Block-AdobeHostsFile {
     Add-Content -Path $hostsPath -Value $newBlock -Encoding ASCII
     Write-Status "Added $($TelemetryDomains.Count) domains to hosts file" -Type Success
     $script:Counters.DomainsBlocked = $TelemetryDomains.Count
+
+    # Flush DNS cache so changes take effect immediately
+    & ipconfig /flushdns 2>&1 | Out-Null
+    Write-Status 'DNS cache flushed' -Type Info
 }
 
 function Disable-CCXProcess {
@@ -889,27 +949,82 @@ function Disable-AdobeStartupEntries {
 }
 
 function Disable-AcrobatTelemetry {
-    Write-Status 'Disabling Adobe Acrobat telemetry via registry' -Type Header
+    Write-Status 'Disabling Adobe Acrobat/Reader telemetry via registry' -Type Header
 
+    # Build policies for both Acrobat Pro and Acrobat Reader
+    $productPaths = @(
+        'Adobe Acrobat'
+        'Acrobat Reader'
+    )
     $acrobatPolicies = @(
         @{
             Path   = 'HKCU:\SOFTWARE\Adobe\Adobe Acrobat\DC\AVAlert\cCheckbox'
             Values = @{ 'iAcro498' = 1 }
         },
         @{
-            Path   = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown'
-            Values = @{ 'bUsageMeasurement' = 0 }
+            Path   = 'HKCU:\SOFTWARE\Adobe\CommonFiles\CRLog'
+            Values = @{ 'Never Ask' = '1' }
+            Type   = 'String'
         },
         @{
-            Path   = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cServices'
-            Values = @{
-                'bToggleAdobeSign'       = 1
-                'bTogglePrefsSync'       = 1
-                'bToggleWebConnectors'   = 1
-                'bAdobeSendPluginToggle' = 1
-            }
+            Path   = 'HKCU:\SOFTWARE\Adobe\Adobe Acrobat\DC\Workflows'
+            Values = @{ 'bNeedSynchronizer' = 0 }
         }
     )
+
+    foreach ($product in $productPaths) {
+        $basePaths = @(
+            "HKLM:\SOFTWARE\Policies\Adobe\$product\DC\FeatureLockDown"
+            "HKLM:\SOFTWARE\Wow6432Node\Policies\Adobe\$product\DC\FeatureLockDown"
+        )
+        foreach ($basePath in $basePaths) {
+            $acrobatPolicies += @{
+                Path   = $basePath
+                Values = @{
+                    'bUsageMeasurement'       = 0
+                    'bAcroSuppressUpsell'     = 1
+                    'bUpdater'                = 0
+                    'bWhatsNewExp'            = 1
+                    'bEnableGentech'          = 0
+                }
+            }
+            $acrobatPolicies += @{
+                Path   = "$basePath\cServices"
+                Values = @{
+                    'bToggleAdobeSign'           = 1
+                    'bTogglePrefsSync'           = 1
+                    'bToggleWebConnectors'       = 1
+                    'bAdobeSendPluginToggle'     = 1
+                    'bToggleAdobeDocumentServices' = 1
+                    'bToggleFillSign'            = 1
+                    'bToggleSendAndTrack'        = 1
+                }
+            }
+            $acrobatPolicies += @{
+                Path   = "$basePath\cIPM"
+                Values = @{
+                    'bShowMsgAtLaunch'              = 0
+                    'bDontShowMsgWhenViewingDoc'    = 0
+                }
+            }
+            $acrobatPolicies += @{
+                Path   = "$basePath\cCloud"
+                Values = @{ 'bDisableADCFileStore' = 1 }
+            }
+            $acrobatPolicies += @{
+                Path   = "$basePath\cWelcomeScreen"
+                Values = @{ 'bShowWelcomeScreen' = 0 }
+            }
+            $acrobatPolicies += @{
+                Path   = "$basePath\cWebmailProfiles"
+                Values = @{ 'bDisableWebmail' = 1 }
+            }
+            $acrobatPolicies += @{
+                Path   = "$basePath\cSharePoint"
+                Values = @{ 'bDisableSharePointFeatures' = 1 }
+            }
+        }
+    }
 
     foreach ($entry in $acrobatPolicies) {
         foreach ($name in $entry.Values.Keys) {
@@ -930,7 +1045,8 @@ function Disable-AcrobatTelemetry {
             if (-not (Test-Path $entry.Path)) {
                 New-Item -Path $entry.Path -Force | Out-Null
             }
-            Set-ItemProperty -Path $entry.Path -Name $name -Value $val -Type DWord -Force
+            $regType = if ($entry.Type) { $entry.Type } else { 'DWord' }
+            Set-ItemProperty -Path $entry.Path -Name $name -Value $val -Type $regType -Force
             Write-Status "Set $($entry.Path)\$name = $val" -Type Success
             $script:Counters.RegistryKeysSet++
         }
@@ -989,13 +1105,28 @@ function Invoke-Undo {
     $marker    = '# --- Adobe Telemetry Block (Disable-AdobeTelemetry.ps1) ---'
     $endMarker = '# --- End Adobe Telemetry Block ---'
     $hostsContent = Get-Content $hostsPath -Raw -ErrorAction SilentlyContinue
+    $hostsModified = $false
+    # Remove WAM entries if present
+    $wamMarker = '# Adobe Creative Cloud WAM - Start'
+    $wamEndMarker = '# Adobe Creative Cloud WAM - End'
+    if ($hostsContent -and $hostsContent -match [regex]::Escape($wamMarker)) {
+        $wamPattern = "(?s)\r?\n?$([regex]::Escape($wamMarker)).*?$([regex]::Escape($wamEndMarker))\r?\n?"
+        $hostsContent = $hostsContent -replace $wamPattern, ''
+        $hostsModified = $true
+        Write-Status 'Removed Adobe WAM hosts injection' -Type Success
+    }
     if ($hostsContent -and $hostsContent -match [regex]::Escape($marker)) {
         $pattern = "(?s)\r?\n?$([regex]::Escape($marker)).*?$([regex]::Escape($endMarker))\r?\n?"
         $hostsContent = $hostsContent -replace $pattern, ''
-        Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding ASCII
+        $hostsModified = $true
         Write-Status 'Removed Adobe telemetry block from hosts file' -Type Success
     } else {
         Write-Status 'No Adobe block found in hosts file' -Type Warning
+    }
+    if ($hostsModified) {
+        Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding ASCII
+        & ipconfig /flushdns 2>&1 | Out-Null
+        Write-Status 'DNS cache flushed' -Type Info
     }
 
     # 5. Remove IFEO debugger entries for CCXProcess.exe
@@ -1088,8 +1219,10 @@ function Invoke-Undo {
     $regPathsToRemove = @(
         'HKLM:\SOFTWARE\Policies\Adobe\Common\Enterprise'
         'HKLM:\SOFTWARE\Policies\Adobe\CCXNew'
-        'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cServices'
         'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown'
+        'HKLM:\SOFTWARE\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown'
+        'HKLM:\SOFTWARE\Wow6432Node\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown'
+        'HKLM:\SOFTWARE\Wow6432Node\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown'
     )
     foreach ($regPath in $regPathsToRemove) {
         if (Test-Path $regPath) {
@@ -1101,7 +1234,9 @@ function Invoke-Undo {
     $specificValues = @(
         @{ Path = 'HKLM:\SOFTWARE\Adobe\Adobe Genuine Service'; Name = 'AgsDisabled' },
         @{ Path = 'HKCU:\SOFTWARE\Adobe\CommonFiles\UsageCC'; Name = 'AUSUF' },
-        @{ Path = 'HKCU:\SOFTWARE\Adobe\Adobe Acrobat\DC\AVAlert\cCheckbox'; Name = 'iAcro498' }
+        @{ Path = 'HKCU:\SOFTWARE\Adobe\Adobe Acrobat\DC\AVAlert\cCheckbox'; Name = 'iAcro498' },
+        @{ Path = 'HKCU:\SOFTWARE\Adobe\CommonFiles\CRLog'; Name = 'Never Ask' },
+        @{ Path = 'HKCU:\SOFTWARE\Adobe\Adobe Acrobat\DC\Workflows'; Name = 'bNeedSynchronizer' }
     )
     foreach ($sv in $specificValues) {
         if (Test-Path $sv.Path) {
@@ -1235,10 +1370,11 @@ function Show-Status {
         @{ Path = 'HKLM:\SOFTWARE\Adobe\Adobe Genuine Service'; Name = 'AgsDisabled'; Expected = 1 },
         @{ Path = 'HKCU:\SOFTWARE\Adobe\CommonFiles\UsageCC'; Name = 'AUSUF'; Expected = 0 },
         @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown'; Name = 'bUsageMeasurement'; Expected = 0 },
+        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown'; Name = 'bAcroSuppressUpsell'; Expected = 1 },
         @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cServices'; Name = 'bToggleAdobeSign'; Expected = 1 },
-        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cServices'; Name = 'bTogglePrefsSync'; Expected = 1 },
-        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cServices'; Name = 'bToggleWebConnectors'; Expected = 1 },
-        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cServices'; Name = 'bAdobeSendPluginToggle'; Expected = 1 }
+        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cIPM'; Name = 'bShowMsgAtLaunch'; Expected = 0 },
+        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown'; Name = 'bUsageMeasurement'; Expected = 0 },
+        @{ Path = 'HKCU:\SOFTWARE\Adobe\CommonFiles\CRLog'; Name = 'Never Ask'; Expected = '1' }
     )
     foreach ($check in $regChecks) {
         if (Test-Path $check.Path) {
@@ -1369,6 +1505,19 @@ if ($adobeApps) {
     Write-Host '  For best results, close all Adobe apps before running this script.' -ForegroundColor Yellow
     Write-Host '  Some operations may fail or require a reboot to take full effect.' -ForegroundColor Yellow
     Write-Host ''
+}
+
+# Create system restore point before making changes
+if (-not $DryRun) {
+    try {
+        $srEnabled = (Get-ComputerRestorePoint -ErrorAction SilentlyContinue) -ne $null -or $true
+        Checkpoint-Computer -Description 'Pre-Disable-AdobeTelemetry' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
+        Write-Status 'System restore point created' -Type Success
+    } catch {
+        Write-Status "Could not create restore point: $($_.Exception.Message)" -Type Warning
+    }
+} else {
+    Write-Status 'Would create system restore point' -Type DryRun
 }
 
 # Execute each phase if enabled
