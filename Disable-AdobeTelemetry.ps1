@@ -59,7 +59,9 @@ param(
     [string[]]$Skip,
     [ValidateSet('Minimal','Standard','Aggressive')]
     [string]$Profile = 'Standard',
-    [string]$Launcher
+    [string]$Launcher,
+    [string]$ExportProfile,
+    [string]$ImportProfile
 )
 
 # ── Auto-Elevate ─────────────────────────────────────────────────────────────
@@ -75,6 +77,8 @@ if (-not $isAdmin) {
     if ($Skip)       { $argList += '-Skip'; $argList += ($Skip -join ',') }
     if ($Profile -ne 'Standard') { $argList += '-Profile'; $argList += $Profile }
     if ($Launcher) { $argList += '-Launcher'; $argList += "`"$Launcher`"" }
+    if ($ExportProfile) { $argList += '-ExportProfile'; $argList += "`"$ExportProfile`"" }
+    if ($ImportProfile) { $argList += '-ImportProfile'; $argList += "`"$ImportProfile`"" }
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     exit 0
 }
@@ -1593,9 +1597,46 @@ function Invoke-CleanLauncher {
     Write-Status 'Telemetry processes cleaned up' -Type Success
 }
 
+# ── Profile Export/Import ─────────────────────────────────────────────────────
+
+function Export-RunProfile {
+    param([string]$Path)
+    $profileData = @{
+        Version   = '2.1.0'
+        CreatedAt = (Get-Date -Format 'o')
+        Profile   = $Profile
+        Only      = $Only
+        Skip      = $Skip
+        Domains   = $TelemetryDomains
+    }
+    $profileData | ConvertTo-Json -Depth 3 | Set-Content -Path $Path -Force -Encoding UTF8
+    Write-Status "Profile exported to $Path" -Type Success
+}
+
+function Import-RunProfile {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) {
+        Write-Status "Profile not found: $Path" -Type Error
+        exit 1
+    }
+    $profileData = Get-Content $Path -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+    if ($profileData.Only) { $script:Only = @($profileData.Only) }
+    if ($profileData.Skip) { $script:Skip = @($profileData.Skip) }
+    if ($profileData.Domains) { $script:TelemetryDomains = @($profileData.Domains) }
+    Write-Status "Profile loaded from $Path (Profile: $($profileData.Profile))" -Type Success
+}
+
 # ── Main Execution ──────────────────────────────────────────────────────────────
 
-# Handle -Launcher mode before the standard flow
+# Handle special modes before the standard flow
+if ($ExportProfile) {
+    Export-RunProfile -Path $ExportProfile
+    exit 0
+}
+if ($ImportProfile) {
+    Import-RunProfile -Path $ImportProfile
+}
+
 if ($Launcher) {
     Invoke-CleanLauncher -AppName $Launcher
     exit 0

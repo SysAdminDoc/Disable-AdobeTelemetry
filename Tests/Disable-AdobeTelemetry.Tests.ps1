@@ -17,7 +17,7 @@ BeforeAll {
         $domainBlock = $m.Groups[1].Value
         $domains = $domainBlock -split "`n" |
             ForEach-Object { $_.Trim().Trim("'").Trim('"') } |
-            Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -ne '' }
+            Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -ne '' -and $_ -notmatch '^\$' }
         $script:TelemetryDomains += $domains
     }
     $script:TelemetryDomains = $script:TelemetryDomains | Sort-Object -Unique
