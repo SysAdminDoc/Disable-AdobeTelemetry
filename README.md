@@ -90,6 +90,12 @@ For GrowthSDK, a similar approach is used: the directory is replaced with a read
 # Run everything except process killing
 .\Disable-AdobeTelemetry.ps1 -Skip Kill
 
+# Light touch: block telemetry domains and kill processes only (no service/task/registry changes)
+.\Disable-AdobeTelemetry.ps1 -Profile Minimal
+
+# Maximum blocking: includes font domains and cloud library endpoints
+.\Disable-AdobeTelemetry.ps1 -Profile Aggressive
+
 # Check current status of all protections
 .\Disable-AdobeTelemetry.ps1 -StatusOnly
 
