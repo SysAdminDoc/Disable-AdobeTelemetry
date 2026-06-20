@@ -70,6 +70,42 @@ $ErrorActionPreference = 'SilentlyContinue'
 
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
 
+# ── Undo Manifest ────────────────────────────────────────────────────────────
+# JSON manifest recording every action so -Undo can be fully deterministic
+$script:ManifestDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry'
+$script:ManifestPath = Join-Path $script:ManifestDir 'undo-manifest.json'
+$script:ManifestActions = @()
+
+function Add-ManifestAction {
+    param(
+        [string]$Phase,
+        [string]$Action,       # e.g. 'RenameFile', 'SetRegistry', 'AddFirewallRule', etc.
+        [hashtable]$Details    # action-specific details for undo
+    )
+    if ($DryRun) { return }
+    $script:ManifestActions += @{
+        Phase     = $Phase
+        Action    = $Action
+        Timestamp = (Get-Date -Format 'o')
+        Details   = $Details
+    }
+}
+
+function Save-Manifest {
+    if ($DryRun) { return }
+    if ($script:ManifestActions.Count -eq 0) { return }
+    if (-not (Test-Path $script:ManifestDir)) {
+        New-Item -Path $script:ManifestDir -ItemType Directory -Force | Out-Null
+    }
+    $manifest = @{
+        Version   = '2.0.0'
+        CreatedAt = (Get-Date -Format 'o')
+        Actions   = $script:ManifestActions
+    }
+    $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $script:ManifestPath -Force -Encoding UTF8
+    Write-Status "Undo manifest saved to $($script:ManifestPath)" -Type Info
+}
+
 # ── Phase Resolution ──────────────────────────────────────────────────────────
 # Valid phase names for -Only / -Skip filtering
 $script:ValidPhases = @(
@@ -299,6 +335,9 @@ function Remove-GrowthSDK {
                 $acl.AddAccessRule($denyRule)
                 Set-Acl -Path $growthDir -AclObject $acl
                 Write-Status "Removed and blocked GrowthSDK for $($userProf.Name)" -Type Success
+                Add-ManifestAction -Phase 'GrowthSDK' -Action 'BlockDirectory' -Details @{
+                    Path = $growthDir; Profile = $userProf.Name
+                }
                 $script:Counters.GrowthSDKBlocked++
             } else {
                 Write-Status "Could not remove GrowthSDK for $($userProf.Name) (files locked?)" -Type Error
@@ -687,7 +726,18 @@ function Disable-CCXProcess {
     if ($DryRun) {
         Write-Status 'Would set IFEO debugger redirect for CCXProcess.exe' -Type DryRun
     } else {
-        if (-not (Test-Path $ifeoPath)) {
+        # Save original IFEO value before overwriting so restore can be exact
+        if (Test-Path $ifeoPath) {
+            $originalDebugger = (Get-ItemProperty -Path $ifeoPath -Name 'Debugger' -ErrorAction SilentlyContinue).Debugger
+            if ($originalDebugger -and $originalDebugger -ne 'nul') {
+                $backupDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry'
+                if (-not (Test-Path $backupDir)) { New-Item -Path $backupDir -ItemType Directory -Force | Out-Null }
+                $ifeoBackup = Join-Path $backupDir 'ifeo-original-values.txt'
+                $backupLine = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | CCXProcess.exe | Debugger | $originalDebugger"
+                Add-Content -Path $ifeoBackup -Value $backupLine -ErrorAction SilentlyContinue
+                Write-Status "Saved original IFEO value for CCXProcess.exe: $originalDebugger" -Type Info
+            }
+        } else {
             New-Item -Path $ifeoPath -Force | Out-Null
         }
         Set-ItemProperty -Path $ifeoPath -Name 'Debugger' -Value 'nul' -Type String -Force
@@ -743,7 +793,14 @@ function Disable-AdobeIPCBroker {
                     Write-Status "Would restore previously disabled AdobeIPCBroker.exe in $ipcDir" -Type DryRun
                 } else {
                     Rename-Item -Path $disabledExe -NewName 'AdobeIPCBroker.exe' -Force -ErrorAction SilentlyContinue
-                    Write-Status "Restored previously disabled AdobeIPCBroker.exe in $ipcDir" -Type Success
+                    # Re-run guard: verify the restore actually worked
+                    $ipcExe = Join-Path $ipcDir 'AdobeIPCBroker.exe'
+                    if (Test-Path $ipcExe) {
+                        Write-Status "Restored previously disabled AdobeIPCBroker.exe in $ipcDir" -Type Success
+                    } else {
+                        Write-Status "Failed to restore AdobeIPCBroker.exe in $ipcDir - file may be locked" -Type Error
+                        continue
+                    }
                 }
                 $ipcExe = Join-Path $ipcDir 'AdobeIPCBroker.exe'
             } else {
@@ -1299,6 +1356,20 @@ if ($StatusOnly) {
 if ($Undo) {
     Invoke-Undo
     exit 0
+}
+
+# Pre-run check: warn if Adobe creative apps are open
+$adobeApps = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.ProcessName -match '^(Photoshop|Illustrator|AfterFX|Premiere Pro|Adobe Premiere Pro|InDesign|Lightroom|Adobe Substance|Adobe Dimension|Audition|InCopy|Animate|Adobe Media Encoder|AdobeCollabSync)$'
+}
+if ($adobeApps) {
+    $appNames = ($adobeApps | Select-Object -ExpandProperty ProcessName -Unique) -join ', '
+    Write-Host ''
+    Write-Host '  WARNING: Adobe application(s) currently running: ' -ForegroundColor Yellow -NoNewline
+    Write-Host $appNames -ForegroundColor Red
+    Write-Host '  For best results, close all Adobe apps before running this script.' -ForegroundColor Yellow
+    Write-Host '  Some operations may fail or require a reboot to take full effect.' -ForegroundColor Yellow
+    Write-Host ''
 }
 
 # Execute each phase if enabled
