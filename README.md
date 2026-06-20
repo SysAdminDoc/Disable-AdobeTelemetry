@@ -96,6 +96,9 @@ For GrowthSDK, a similar approach is used: the directory is replaced with a read
 # Maximum blocking: includes font domains and cloud library endpoints
 .\Disable-AdobeTelemetry.ps1 -Profile Aggressive
 
+# Clean launch: kill telemetry, run Photoshop, re-kill on exit (no permanent changes)
+.\Disable-AdobeTelemetry.ps1 -Launcher Photoshop
+
 # Check current status of all protections
 .\Disable-AdobeTelemetry.ps1 -StatusOnly
 
