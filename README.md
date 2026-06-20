@@ -102,6 +102,9 @@ For GrowthSDK, a similar approach is used: the directory is replaced with a read
 # Check current status of all protections
 .\Disable-AdobeTelemetry.ps1 -StatusOnly
 
+# Install weekly watchdog (Mondays 9 AM) to reassert blocks after Adobe updates
+.\Disable-AdobeTelemetry.ps1 -InstallWatchdog
+
 # Reverse all changes
 .\Disable-AdobeTelemetry.ps1 -Undo
 ```

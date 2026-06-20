@@ -61,7 +61,9 @@ param(
     [string]$Profile = 'Standard',
     [string]$Launcher,
     [string]$ExportProfile,
-    [string]$ImportProfile
+    [string]$ImportProfile,
+    [switch]$InstallWatchdog,
+    [switch]$RemoveWatchdog
 )
 
 # ── Auto-Elevate ─────────────────────────────────────────────────────────────
@@ -79,6 +81,8 @@ if (-not $isAdmin) {
     if ($Launcher) { $argList += '-Launcher'; $argList += "`"$Launcher`"" }
     if ($ExportProfile) { $argList += '-ExportProfile'; $argList += "`"$ExportProfile`"" }
     if ($ImportProfile) { $argList += '-ImportProfile'; $argList += "`"$ImportProfile`"" }
+    if ($InstallWatchdog) { $argList += '-InstallWatchdog' }
+    if ($RemoveWatchdog)  { $argList += '-RemoveWatchdog' }
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     exit 0
 }
@@ -1354,6 +1358,10 @@ function Invoke-Undo {
         }
     }
 
+    # 10. Remove watchdog task if installed
+    Write-Status 'Removing watchdog task' -Type Header
+    Remove-Watchdog
+
     Write-Status 'Undo Complete' -Type Header
     Write-Host '  All Adobe telemetry blocks have been reversed.' -ForegroundColor Green
     Write-Host '  A reboot is recommended to ensure all changes take effect.' -ForegroundColor Yellow
@@ -1505,6 +1513,16 @@ function Show-Status {
         Write-Host '    No Adobe startup entries found' -ForegroundColor DarkGray
     }
 
+    # Watchdog task
+    Write-Host ''
+    Write-Host '  --- Watchdog ---' -ForegroundColor Cyan
+    $wdTask = Get-ScheduledTask -TaskName $script:WatchdogTaskName -ErrorAction SilentlyContinue
+    if ($wdTask) {
+        Write-Host "    $($script:WatchdogTaskName) : $($wdTask.State)" -ForegroundColor Green
+    } else {
+        Write-Host "    $($script:WatchdogTaskName) : Not installed" -ForegroundColor DarkGray
+    }
+
     Write-Host ''
 }
 
@@ -1597,6 +1615,42 @@ function Invoke-CleanLauncher {
     Write-Status 'Telemetry processes cleaned up' -Type Success
 }
 
+# ── Watchdog Scheduled Task ───────────────────────────────────────────────────
+
+$script:WatchdogTaskName = 'Disable-AdobeTelemetry Watchdog'
+
+function Install-Watchdog {
+    $scriptFullPath = $PSCommandPath
+    $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptFullPath`" -Skip Kill"
+    $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At '09:00'
+    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+
+    $existing = Get-ScheduledTask -TaskName $script:WatchdogTaskName -ErrorAction SilentlyContinue
+    if ($existing) {
+        Set-ScheduledTask -TaskName $script:WatchdogTaskName -Action $action -Trigger $trigger `
+            -Principal $principal -Settings $settings -ErrorAction SilentlyContinue | Out-Null
+        Write-Status "Updated watchdog task: $($script:WatchdogTaskName)" -Type Success
+    } else {
+        Register-ScheduledTask -TaskName $script:WatchdogTaskName -Action $action -Trigger $trigger `
+            -Principal $principal -Settings $settings -Description 'Weekly reassertion of Adobe telemetry blocks after updates' `
+            -ErrorAction SilentlyContinue | Out-Null
+        Write-Status "Installed watchdog task: $($script:WatchdogTaskName) (Mondays 9 AM)" -Type Success
+    }
+}
+
+function Remove-Watchdog {
+    $existing = Get-ScheduledTask -TaskName $script:WatchdogTaskName -ErrorAction SilentlyContinue
+    if ($existing) {
+        Unregister-ScheduledTask -TaskName $script:WatchdogTaskName -Confirm:$false -ErrorAction SilentlyContinue
+        Write-Status "Removed watchdog task: $($script:WatchdogTaskName)" -Type Success
+    } else {
+        Write-Status 'No watchdog task found' -Type Warning
+    }
+}
+
 # ── Profile Export/Import ─────────────────────────────────────────────────────
 
 function Export-RunProfile {
@@ -1629,6 +1683,14 @@ function Import-RunProfile {
 # ── Main Execution ──────────────────────────────────────────────────────────────
 
 # Handle special modes before the standard flow
+if ($InstallWatchdog) {
+    Install-Watchdog
+    exit 0
+}
+if ($RemoveWatchdog) {
+    Remove-Watchdog
+    exit 0
+}
 if ($ExportProfile) {
     Export-RunProfile -Path $ExportProfile
     exit 0
