@@ -37,8 +37,8 @@
 
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.0.0
-    Date    : 2026-06-19
+    Version : 2.1.0
+    Date    : 2026-06-20
 #>
 
 param(
@@ -98,7 +98,7 @@ function Save-Manifest {
         New-Item -Path $script:ManifestDir -ItemType Directory -Force | Out-Null
     }
     $manifest = @{
-        Version   = '2.0.0'
+        Version   = '2.1.0'
         CreatedAt = (Get-Date -Format 'o')
         Actions   = $script:ManifestActions
     }
@@ -648,6 +648,28 @@ function Block-AdobeFirewall {
     } else {
         Write-Status 'No known Adobe telemetry executables found on disk' -Type Warning
     }
+
+    # Add persistent null routes for resolved telemetry IPs
+    if ($resolvedIPs.Count -gt 0) {
+        $routesAdded = 0
+        foreach ($ip in $resolvedIPs) {
+            $existing = route print $ip 2>&1 | Select-String $ip -ErrorAction SilentlyContinue
+            if ($existing) { continue }
+            if ($DryRun) {
+                $routesAdded++
+            } else {
+                & route -p add $ip mask 255.255.255.255 0.0.0.0 2>&1 | Out-Null
+                $routesAdded++
+            }
+        }
+        if ($routesAdded -gt 0) {
+            if ($DryRun) {
+                Write-Status "Would add $routesAdded persistent null routes" -Type DryRun
+            } else {
+                Write-Status "Added $routesAdded persistent null routes for telemetry IPs" -Type Success
+            }
+        }
+    }
 }
 
 function Block-AdobeHostsFile {
@@ -1099,6 +1121,29 @@ function Invoke-Undo {
         Write-Status 'No Adobe telemetry firewall rules found' -Type Warning
     }
 
+    # 3b. Remove persistent null routes for telemetry IPs
+    Write-Status 'Removing persistent null routes' -Type Header
+    $routeOutput = route print 2>&1
+    $routesRemoved = 0
+    foreach ($domain in $TelemetryDomains) {
+        try {
+            $ips = [System.Net.Dns]::GetHostAddresses($domain) |
+                   Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
+                   Select-Object -ExpandProperty IPAddressToString
+            foreach ($ip in $ips) {
+                if ($routeOutput -match [regex]::Escape($ip)) {
+                    & route delete $ip 2>&1 | Out-Null
+                    $routesRemoved++
+                }
+            }
+        } catch { }
+    }
+    if ($routesRemoved -gt 0) {
+        Write-Status "Removed $routesRemoved persistent null route(s)" -Type Success
+    } else {
+        Write-Status 'No persistent null routes found' -Type Warning
+    }
+
     # 4. Remove hosts file block (between markers)
     Write-Status 'Removing hosts file telemetry block' -Type Header
     $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
@@ -1457,7 +1502,7 @@ function Show-Summary {
 
 Write-Host ''
 Write-Host '  =============================================' -ForegroundColor Cyan
-Write-Host '   Disable-AdobeTelemetry v2.0.0' -ForegroundColor White
+Write-Host '   Disable-AdobeTelemetry v2.1.0' -ForegroundColor White
 Write-Host '   Comprehensive Adobe GrowthSDK + Telemetry' -ForegroundColor White
 Write-Host '   Removal and Blocking Utility' -ForegroundColor White
 Write-Host '  =============================================' -ForegroundColor Cyan
@@ -1475,7 +1520,7 @@ if ($Skip -and $Skip.Count -gt 0) {
 }
 
 # Initialize log
-$logHeader = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Disable-AdobeTelemetry v2.0.0 started"
+$logHeader = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Disable-AdobeTelemetry v2.1.0 started"
 if ($Undo)       { $logHeader += ' (UNDO mode)' }
 if ($StatusOnly) { $logHeader += ' (STATUS mode)' }
 if ($DryRun)     { $logHeader += ' (DRY RUN mode)' }
