@@ -369,6 +369,20 @@ $TelemetryDomains = switch ($Profile) {
     default      { $TelemetryDomainsStandard }
 }
 
+# Domains that must never be blocked — required for authentication and downloads
+$script:DomainSafelist = @(
+    'ims-na1.adobelogin.com'
+    'auth.services.adobe.com'
+    'na1e-acc.services.adobe.com'
+    'ccmdls.adobe.com'
+    'ardownload2.adobe.com'
+    'cdn-ffc.oobesaas.adobe.com'
+    'cc-api-data-us.adobe.io'
+    'fonts.adobe.com'
+    'stock.adobe.com'
+    'www.adobe.com'
+)
+
 # Optionally merge upstream domains from a-dove-is-dumb community list
 $script:UpstreamUrl = 'https://a.dove.isdumb.one/list.txt'
 function Merge-UpstreamDomains {
@@ -377,11 +391,15 @@ function Merge-UpstreamDomains {
         $upstream = $raw -split "`n" |
             ForEach-Object { $_.Trim() } |
             Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -match '\.' }
-        if ($upstream.Count -gt 0) {
+        $filtered = $upstream | Where-Object { $script:DomainSafelist -notcontains $_ }
+        $removed = $upstream.Count - $filtered.Count
+        if ($filtered.Count -gt 0) {
             $before = $script:TelemetryDomains.Count
-            $script:TelemetryDomains = ($script:TelemetryDomains + $upstream) | Sort-Object -Unique
+            $script:TelemetryDomains = ($script:TelemetryDomains + $filtered) | Sort-Object -Unique
             $added = $script:TelemetryDomains.Count - $before
-            Write-Status "Merged $added upstream domains ($($script:TelemetryDomains.Count) total)" -Type Success
+            $msg = "Merged $added upstream domains ($($script:TelemetryDomains.Count) total)"
+            if ($removed -gt 0) { $msg += " ($removed safelisted domains filtered)" }
+            Write-Status $msg -Type Success
         }
     } catch {
         Write-Status "Could not fetch upstream domain list (using built-in list)" -Type Warning
@@ -880,21 +898,23 @@ function Block-AdobeFirewall {
         }
     }
 
-    # Block outbound to telemetry domains by resolving IPs
-    # Log every domain's resolved IPs for audit purposes
-    $resolvedIPs = @()
+    # Block outbound to telemetry domains by resolving IPs (both IPv4 and IPv6)
+    $resolvedIPv4 = @()
+    $resolvedIPv6 = @()
     $domainIPMap = @{}
     foreach ($domain in $TelemetryDomains) {
         try {
-            $ips = [System.Net.Dns]::GetHostAddresses($domain) |
-                   Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
-                   Select-Object -ExpandProperty IPAddressToString
-            if ($ips) {
-                $resolvedIPs += $ips
-                $domainIPMap[$domain] = $ips
-                Write-Status "$domain -> $($ips -join ', ')" -Type Info
+            $allAddrs = [System.Net.Dns]::GetHostAddresses($domain)
+            $v4 = $allAddrs | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -ExpandProperty IPAddressToString
+            $v6 = $allAddrs | Where-Object { $_.AddressFamily -eq 'InterNetworkV6' } | Select-Object -ExpandProperty IPAddressToString
+            $combined = @()
+            if ($v4) { $resolvedIPv4 += $v4; $combined += $v4 }
+            if ($v6) { $resolvedIPv6 += $v6; $combined += $v6 }
+            if ($combined) {
+                $domainIPMap[$domain] = $combined
+                Write-Status "$domain -> $($combined -join ', ')" -Type Info
             } else {
-                Write-Status "$domain -> no IPv4 records" -Type Warning
+                Write-Status "$domain -> no records" -Type Warning
             }
         } catch {
             Write-Status "$domain -> resolution failed" -Type Warning
@@ -908,29 +928,31 @@ function Block-AdobeFirewall {
         Add-Content -Path $script:LogFile -Value "  $domain -> $($domainIPMap[$domain] -join ', ')" -ErrorAction SilentlyContinue
     }
 
-    $resolvedIPs = $resolvedIPs | Sort-Object -Unique
+    $resolvedIPv4 = $resolvedIPv4 | Sort-Object -Unique
+    $resolvedIPv6 = $resolvedIPv6 | Sort-Object -Unique
+    $allResolvedIPs = @($resolvedIPv4) + @($resolvedIPv6) | Sort-Object -Unique
 
-    if ($resolvedIPs.Count -gt 0) {
+    if ($allResolvedIPs.Count -gt 0) {
         if ($DryRun) {
-            Write-Status "Would block $($resolvedIPs.Count) telemetry IPs via firewall" -Type DryRun
+            Write-Status "Would block $($resolvedIPv4.Count) IPv4 + $($resolvedIPv6.Count) IPv6 telemetry IPs via firewall" -Type DryRun
         } else {
             New-NetFirewallRule -DisplayName 'Block Adobe Telemetry - Outbound IPs (TCP)' `
                 -Direction Outbound `
                 -Action Block `
-                -RemoteAddress $resolvedIPs `
+                -RemoteAddress $allResolvedIPs `
                 -Protocol TCP `
                 -Profile Any `
                 -Enabled True `
-                -Description 'Blocks outbound TCP to Adobe telemetry/analytics servers.' |
+                -Description 'Blocks outbound TCP to Adobe telemetry/analytics servers (IPv4+IPv6).' |
                 Out-Null
             New-NetFirewallRule -DisplayName 'Block Adobe Telemetry - Outbound IPs (UDP)' `
                 -Direction Outbound `
                 -Action Block `
-                -RemoteAddress $resolvedIPs `
+                -RemoteAddress $allResolvedIPs `
                 -Protocol UDP `
                 -Profile Any `
                 -Enabled True `
-                -Description 'Blocks outbound UDP/QUIC to Adobe telemetry/analytics servers.' |
+                -Description 'Blocks outbound UDP/QUIC to Adobe telemetry/analytics servers (IPv4+IPv6).' |
                 Out-Null
             Add-ManifestAction -Phase 'Firewall' -Action 'AddFirewallRule' -Details @{
                 DisplayName = 'Block Adobe Telemetry - Outbound IPs (TCP)'
@@ -938,9 +960,9 @@ function Block-AdobeFirewall {
             Add-ManifestAction -Phase 'Firewall' -Action 'AddFirewallRule' -Details @{
                 DisplayName = 'Block Adobe Telemetry - Outbound IPs (UDP)'
             }
-            Write-Status "Blocked $($resolvedIPs.Count) telemetry IPs via firewall (TCP+UDP)" -Type Success
+            Write-Status "Blocked $($resolvedIPv4.Count) IPv4 + $($resolvedIPv6.Count) IPv6 telemetry IPs via firewall (TCP+UDP)" -Type Success
         }
-        $script:Counters.FirewallIPsBlocked = $resolvedIPs.Count
+        $script:Counters.FirewallIPsBlocked = $allResolvedIPs.Count
         $script:Counters.FirewallRulesAdded += 2
     } else {
         Write-Status 'Could not resolve any telemetry domains (offline?)' -Type Warning
@@ -1000,10 +1022,10 @@ function Block-AdobeFirewall {
         Write-Status 'No known Adobe telemetry executables found on disk' -Type Warning
     }
 
-    # Add persistent null routes for resolved telemetry IPs
-    if ($resolvedIPs.Count -gt 0) {
+    # Add persistent null routes for resolved telemetry IPs (IPv4 only — route.exe does not support IPv6 persistent routes)
+    if ($resolvedIPv4.Count -gt 0) {
         $routesAdded = 0
-        foreach ($ip in $resolvedIPs) {
+        foreach ($ip in $resolvedIPv4) {
             $existing = route print $ip 2>&1 | Select-String $ip -ErrorAction SilentlyContinue
             if ($existing) { continue }
             if ($DryRun) {
@@ -1077,10 +1099,11 @@ function Block-AdobeHostsFile {
         Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding ASCII
     }
 
-    # Append new block
+    # Append new block (IPv4 + IPv6 sinkhole for each domain)
     $blockEntries = @($marker)
     foreach ($domain in $TelemetryDomains) {
         $blockEntries += "0.0.0.0    $domain"
+        $blockEntries += "::         $domain"
     }
     $blockEntries += $endMarker
 
