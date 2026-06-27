@@ -48,7 +48,7 @@ $colors = @{
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Disable-AdobeTelemetry v2.2.0"
+        Title="Disable-AdobeTelemetry v2.3.0"
         Width="780" Height="620"
         MinWidth="600" MinHeight="450"
         Background="$($colors.Base)"
@@ -178,7 +178,7 @@ $colors = @{
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="StatusText" Grid.Column="0" Text="Ready"
                            Foreground="$($colors.Subtext0)" FontSize="12" VerticalAlignment="Center"/>
-                <TextBlock x:Name="VersionText" Grid.Column="1" Text="v2.2.0"
+                <TextBlock x:Name="VersionText" Grid.Column="1" Text="v2.3.0"
                            Foreground="$($colors.Surface2)" FontSize="11" VerticalAlignment="Center"/>
             </Grid>
         </Border>
@@ -350,7 +350,7 @@ $clearButton.Add_Click({
     $statusText.Text = 'Ready'
 })
 
-Write-LogLine "  Disable-AdobeTelemetry GUI v2.2.0"
+Write-LogLine "  Disable-AdobeTelemetry GUI v2.3.0"
 Write-LogLine "  Script: $mainScript"
 Write-LogLine ""
 
