@@ -375,6 +375,19 @@ Describe 'Dynamic Keywords FQDN' {
     }
 }
 
+Describe 'Watchdog Scheduled Task' {
+    It 'uses an encoded command for scheduled task arguments' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $installWatchdog = $funcDefs | Where-Object { $_.Name -eq 'Install-Watchdog' } | Select-Object -First 1
+        $funcBody = $scriptContent.Substring($installWatchdog.Extent.StartOffset, $installWatchdog.Extent.EndOffset - $installWatchdog.Extent.StartOffset)
+
+        $funcBody | Should -Match '-EncodedCommand'
+        $funcBody | Should -Match 'ToBase64String'
+        $funcBody | Should -Not -Match '-Command `"\$preCheck'
+    }
+}
+
 Describe 'DISA STIG Hardening' {
     It 'includes STIG registry keys for Aggressive profile' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
