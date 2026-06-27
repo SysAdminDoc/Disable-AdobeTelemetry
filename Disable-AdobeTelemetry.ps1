@@ -45,10 +45,21 @@
     app, waits for it to exit, then re-kills telemetry. No permanent system changes.
     Accepts app names: Photoshop, Illustrator, Premiere, AfterEffects, InDesign, etc.
 
+.PARAMETER OutputFormat
+    Output format for -StatusOnly: Text (default, colored console output) or JSON
+    (machine-readable structured output for fleet management tools).
+
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.2.0
+    Version : 2.3.0
     Date    : 2026-06-27
+
+    Exit codes:
+      0    = Success (no reboot needed) or dry run completed
+      1    = Fatal error (invalid arguments, missing executable)
+      2    = Invalid arguments
+      3    = Partial success (some phases encountered errors)
+      3010 = Success, reboot recommended (SCCM/Intune convention)
 #>
 
 param(
@@ -73,7 +84,9 @@ param(
     [string]$PlumbingApp = 'Premiere',
     [ValidateRange(1,1440)]
     [int]$PlumbingMinutes = 10,
-    [switch]$Verbose
+    [switch]$Verbose,
+    [ValidateSet('Text','JSON')]
+    [string]$OutputFormat = 'Text'
 )
 
 # ── Auto-Elevate ─────────────────────────────────────────────────────────────
@@ -98,6 +111,7 @@ if (-not $isAdmin) {
     if ($TraceOutput) { $argList += '-TraceOutput'; $argList += "`"$TraceOutput`"" }
     if ($PlumbingTest) { $argList += '-PlumbingTest'; $argList += '-PlumbingApp'; $argList += "`"$PlumbingApp`""; $argList += '-PlumbingMinutes'; $argList += $PlumbingMinutes }
     if ($Verbose) { $argList += '-Verbose' }
+    if ($OutputFormat -ne 'Text') { $argList += '-OutputFormat'; $argList += $OutputFormat }
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     exit 0
 }
@@ -106,7 +120,7 @@ if (-not $isAdmin) {
 
 $ErrorActionPreference = 'Continue'
 
-$script:DisplayVersion = 'v2.2.0'
+$script:DisplayVersion = 'v2.3.0'
 $script:Version = $script:DisplayVersion.TrimStart('v')
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
 $script:LogDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\logs'
@@ -187,7 +201,7 @@ foreach ($p in ($Only + $Skip)) {
     if ($p -and $script:ValidPhases -notcontains $p) {
         Write-Host "  [!!] Invalid phase name: '$p'" -ForegroundColor Red
         Write-Host "       Valid phases: $($script:ValidPhases -join ', ')" -ForegroundColor Yellow
-        exit 1
+        exit 2
     }
 }
 
@@ -221,6 +235,7 @@ $script:Counters = @{
     ExesNeutralized   = 0
     ConnectionsBefore = -1
     ConnectionsAfter  = -1
+    Errors            = 0
 }
 
 # Adobe background processes to kill
@@ -468,6 +483,8 @@ function Write-Status {
         status    = [bool]$StatusOnly
     }
     ($jsonEntry | ConvertTo-Json -Compress) | Add-Content -Path $script:JsonLogFile -Encoding UTF8 -ErrorAction SilentlyContinue
+
+    if ($Type -eq 'Error') { $script:Counters.Errors++ }
 
     switch ($Type) {
         'Header'  { Write-Host "`n=== $Message ===`n" -ForegroundColor Cyan }
@@ -1949,102 +1966,75 @@ function Invoke-Undo {
 
 # ── Status Function ──────────────────────────────────────────────────────────
 
-function Show-Status {
-    Write-Status 'Adobe Telemetry Status Report' -Type Header
-    Write-Host ''
+function Get-StatusData {
+    $statusData = [ordered]@{
+        Version    = $script:Version
+        Timestamp  = (Get-Date -Format 'o')
+        Computer   = $env:COMPUTERNAME
+        Services   = @()
+        Tasks      = @()
+        GrowthSDK  = @()
+        Firewall   = @{ RuleCount = 0 }
+        Connections = @{ Count = 0 }
+        HostsFile  = @{ BlockPresent = $false }
+        IFEO       = @()
+        Registry   = @()
+        Startup    = @()
+        Watchdog   = @{ Installed = $false; State = 'NotInstalled' }
+    }
 
-    # Services
-    Write-Host '  --- Services ---' -ForegroundColor Cyan
     foreach ($svcName in $Services) {
         $svc = Get-Service -Name $svcName -ErrorAction SilentlyContinue
         if ($svc) {
             $startType = (Get-CimInstance Win32_Service -Filter "Name='$svcName'" -ErrorAction SilentlyContinue).StartMode
-            Write-Host "    $svcName : $($svc.Status) ($startType)" -ForegroundColor $(if ($svc.Status -eq 'Stopped' -or $startType -eq 'Disabled') { 'Green' } else { 'Red' })
+            $statusData.Services += @{ Name = $svcName; Status = "$($svc.Status)"; StartMode = "$startType"; Blocked = ($svc.Status -eq 'Stopped' -or $startType -eq 'Disabled') }
         } else {
-            Write-Host "    $svcName : NotFound" -ForegroundColor DarkGray
+            $statusData.Services += @{ Name = $svcName; Status = 'NotFound'; StartMode = 'N/A'; Blocked = $true }
         }
     }
 
-    # Scheduled Tasks
-    Write-Host ''
-    Write-Host '  --- Scheduled Tasks ---' -ForegroundColor Cyan
     $allTasks = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
         $_.TaskName -like '*Adobe*' -or $_.TaskPath -like '*Adobe*'
     }
     if ($allTasks) {
         foreach ($task in $allTasks) {
-            $color = if ($task.State -eq 'Disabled') { 'Green' } else { 'Red' }
-            Write-Host "    $($task.TaskName) : $($task.State)" -ForegroundColor $color
+            $statusData.Tasks += @{ Name = $task.TaskName; State = "$($task.State)"; Blocked = ($task.State -eq 'Disabled') }
         }
-    } else {
-        Write-Host '    No Adobe scheduled tasks found' -ForegroundColor DarkGray
     }
 
-    # GrowthSDK
-    Write-Host ''
-    Write-Host '  --- GrowthSDK ---' -ForegroundColor Cyan
     $profileRoot = Split-Path $env:USERPROFILE
     $userProfiles = Get-ChildItem $profileRoot -Directory -ErrorAction SilentlyContinue
     foreach ($userProf in $userProfiles) {
         $localLow = Join-Path $userProf.FullName 'AppData\LocalLow'
         if (-not (Test-Path $localLow)) { continue }
         $growthDir = Join-Path $localLow $GrowthSDKRelPath
-        if (Test-Path $growthDir -PathType Leaf) {
-            Write-Host "    $($userProf.Name) : Blocked (decoy file)" -ForegroundColor Green
-        } elseif (Test-Path $growthDir -PathType Container) {
-            Write-Host "    $($userProf.Name) : Present (ACTIVE)" -ForegroundColor Red
-        } else {
-            Write-Host "    $($userProf.Name) : NotFound" -ForegroundColor DarkGray
-        }
+        $state = if (Test-Path $growthDir -PathType Leaf) { 'Blocked' } elseif (Test-Path $growthDir -PathType Container) { 'Active' } else { 'NotFound' }
+        $statusData.GrowthSDK += @{ User = $userProf.Name; State = $state }
     }
 
-    # Firewall Rules
-    Write-Host ''
-    Write-Host '  --- Firewall Rules ---' -ForegroundColor Cyan
     $fwRules = Get-NetFirewallRule -DisplayName 'Block Adobe Telemetry*' -ErrorAction SilentlyContinue
-    $count = if ($fwRules) { @($fwRules).Count } else { 0 }
-    $fwColor = if ($count -gt 0) { 'Green' } else { 'Yellow' }
-    Write-Host "    Adobe telemetry block rules: $count" -ForegroundColor $fwColor
+    $statusData.Firewall.RuleCount = if ($fwRules) { @($fwRules).Count } else { 0 }
 
-    Write-Host ''
-    Write-Host '  --- Live Connections ---' -ForegroundColor Cyan
     $connections = @(Get-AdobeTelemetryConnections)
-    $connectionColor = if ($connections.Count -eq 0) { 'Green' } else { 'Yellow' }
-    Write-Host "    Adobe-owned outbound TCP connections: $($connections.Count)" -ForegroundColor $connectionColor
+    $statusData.Connections.Count = $connections.Count
 
-    # Hosts File
-    Write-Host ''
-    Write-Host '  --- Hosts File ---' -ForegroundColor Cyan
     $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
     $marker = '# --- Adobe Telemetry Block (Disable-AdobeTelemetry.ps1) ---'
     $hostsContent = Get-Content $hostsPath -Raw -ErrorAction SilentlyContinue
-    if ($hostsContent -and $hostsContent -match [regex]::Escape($marker)) {
-        Write-Host '    Adobe telemetry block: Present' -ForegroundColor Green
-    } else {
-        Write-Host '    Adobe telemetry block: Not present' -ForegroundColor Yellow
-    }
+    $statusData.HostsFile.BlockPresent = ($hostsContent -and $hostsContent -match [regex]::Escape($marker))
 
-    # IFEO
-    Write-Host ''
-    Write-Host '  --- IFEO Redirects ---' -ForegroundColor Cyan
     $ifeoCheckExes = @('CCXProcess.exe', 'Creative Cloud Helper.exe', 'AdobeNotificationClient.exe')
     foreach ($ifeoExe in $ifeoCheckExes) {
         $ifeoPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$ifeoExe"
+        $active = $false
+        $debugger = $null
         if (Test-Path $ifeoPath) {
             $debugger = (Get-ItemProperty -Path $ifeoPath -Name 'Debugger' -ErrorAction SilentlyContinue).Debugger
-            if ($debugger) {
-                Write-Host "    $ifeoExe IFEO: Active (Debugger=$debugger)" -ForegroundColor Green
-            } else {
-                Write-Host "    $ifeoExe IFEO: Key exists but no Debugger value" -ForegroundColor Yellow
-            }
-        } else {
-            Write-Host "    $ifeoExe IFEO: Not set" -ForegroundColor Yellow
+            $active = [bool]$debugger
         }
+        $statusData.IFEO += @{ Executable = $ifeoExe; Active = $active; Debugger = $debugger }
     }
 
-    # Registry Policies
-    Write-Host ''
-    Write-Host '  --- Registry Policies ---' -ForegroundColor Cyan
     $regChecks = @(
         @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Common\Enterprise'; Name = 'DisableUsageData'; Expected = 1 },
         @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Common\Enterprise'; Name = 'DisableFileSync'; Expected = 1 },
@@ -2063,53 +2053,131 @@ function Show-Status {
         @{ Path = 'HKCU:\SOFTWARE\Adobe\Substance 3D Painter\Settings'; Name = 'enable_analytics'; Expected = 0 }
     )
     foreach ($check in $regChecks) {
+        $val = $null
+        $state = 'NotSet'
         if (Test-Path $check.Path) {
             $val = (Get-ItemProperty -Path $check.Path -Name $check.Name -ErrorAction SilentlyContinue).($check.Name)
-            if ($null -ne $val) {
-                $color = if ($val -eq $check.Expected) { 'Green' } else { 'Red' }
-                Write-Host "    $($check.Name) = $val (expected $($check.Expected))" -ForegroundColor $color
-            } else {
-                Write-Host "    $($check.Name) : Not set" -ForegroundColor Yellow
-            }
-        } else {
-            Write-Host "    $($check.Name) : Path not found" -ForegroundColor Yellow
-        }
+            if ($null -ne $val) { $state = if ($val -eq $check.Expected) { 'Correct' } else { 'Incorrect' } }
+        } else { $state = 'PathNotFound' }
+        $statusData.Registry += @{ Name = $check.Name; State = $state; Value = $val; Expected = $check.Expected }
     }
 
-    # Startup entries
-    Write-Host ''
-    Write-Host '  --- Startup Entries ---' -ForegroundColor Cyan
     $runPaths = @(
         'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
         'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run'
         'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
     )
-    $foundStartup = $false
     foreach ($runPath in $runPaths) {
         if (-not (Test-Path $runPath)) { continue }
         $props = Get-ItemProperty $runPath -ErrorAction SilentlyContinue
         foreach ($name in $props.PSObject.Properties.Name) {
             if ($name -match 'Adobe|CCXProcess|AdobeGC|AdobeAAM') {
                 $val = $props.$name
-                $foundStartup = $true
-                if ($val -like 'REM *') {
-                    Write-Host "    $name : Disabled" -ForegroundColor Green
-                } else {
-                    Write-Host "    $name : Enabled (ACTIVE)" -ForegroundColor Red
-                }
+                $statusData.Startup += @{ Name = $name; Disabled = ($val -like 'REM *') }
             }
         }
     }
-    if (-not $foundStartup) {
+
+    $wdTask = Get-ScheduledTask -TaskName $script:WatchdogTaskName -ErrorAction SilentlyContinue
+    if ($wdTask) {
+        $statusData.Watchdog = @{ Installed = $true; State = "$($wdTask.State)" }
+    }
+
+    return $statusData
+}
+
+function Show-Status {
+    $data = Get-StatusData
+
+    if ($OutputFormat -eq 'JSON') {
+        $data | ConvertTo-Json -Depth 5
+        return
+    }
+
+    Write-Status 'Adobe Telemetry Status Report' -Type Header
+    Write-Host ''
+
+    Write-Host '  --- Services ---' -ForegroundColor Cyan
+    foreach ($svc in $data.Services) {
+        $color = if ($svc.Blocked) { 'Green' } elseif ($svc.Status -eq 'NotFound') { 'DarkGray' } else { 'Red' }
+        Write-Host "    $($svc.Name) : $($svc.Status) ($($svc.StartMode))" -ForegroundColor $color
+    }
+
+    Write-Host ''
+    Write-Host '  --- Scheduled Tasks ---' -ForegroundColor Cyan
+    if ($data.Tasks.Count -gt 0) {
+        foreach ($task in $data.Tasks) {
+            $color = if ($task.Blocked) { 'Green' } else { 'Red' }
+            Write-Host "    $($task.Name) : $($task.State)" -ForegroundColor $color
+        }
+    } else {
+        Write-Host '    No Adobe scheduled tasks found' -ForegroundColor DarkGray
+    }
+
+    Write-Host ''
+    Write-Host '  --- GrowthSDK ---' -ForegroundColor Cyan
+    foreach ($gs in $data.GrowthSDK) {
+        $color = switch ($gs.State) { 'Blocked' { 'Green' } 'Active' { 'Red' } default { 'DarkGray' } }
+        Write-Host "    $($gs.User) : $($gs.State)" -ForegroundColor $color
+    }
+
+    Write-Host ''
+    Write-Host '  --- Firewall Rules ---' -ForegroundColor Cyan
+    $fwColor = if ($data.Firewall.RuleCount -gt 0) { 'Green' } else { 'Yellow' }
+    Write-Host "    Adobe telemetry block rules: $($data.Firewall.RuleCount)" -ForegroundColor $fwColor
+
+    Write-Host ''
+    Write-Host '  --- Live Connections ---' -ForegroundColor Cyan
+    $connColor = if ($data.Connections.Count -eq 0) { 'Green' } else { 'Yellow' }
+    Write-Host "    Adobe-owned outbound TCP connections: $($data.Connections.Count)" -ForegroundColor $connColor
+
+    Write-Host ''
+    Write-Host '  --- Hosts File ---' -ForegroundColor Cyan
+    if ($data.HostsFile.BlockPresent) {
+        Write-Host '    Adobe telemetry block: Present' -ForegroundColor Green
+    } else {
+        Write-Host '    Adobe telemetry block: Not present' -ForegroundColor Yellow
+    }
+
+    Write-Host ''
+    Write-Host '  --- IFEO Redirects ---' -ForegroundColor Cyan
+    foreach ($ifeo in $data.IFEO) {
+        if ($ifeo.Active) {
+            Write-Host "    $($ifeo.Executable) IFEO: Active (Debugger=$($ifeo.Debugger))" -ForegroundColor Green
+        } elseif ($ifeo.Debugger -eq $null -and (Test-Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$($ifeo.Executable)")) {
+            Write-Host "    $($ifeo.Executable) IFEO: Key exists but no Debugger value" -ForegroundColor Yellow
+        } else {
+            Write-Host "    $($ifeo.Executable) IFEO: Not set" -ForegroundColor Yellow
+        }
+    }
+
+    Write-Host ''
+    Write-Host '  --- Registry Policies ---' -ForegroundColor Cyan
+    foreach ($reg in $data.Registry) {
+        switch ($reg.State) {
+            'Correct'      { Write-Host "    $($reg.Name) = $($reg.Value) (expected $($reg.Expected))" -ForegroundColor Green }
+            'Incorrect'    { Write-Host "    $($reg.Name) = $($reg.Value) (expected $($reg.Expected))" -ForegroundColor Red }
+            'NotSet'       { Write-Host "    $($reg.Name) : Not set" -ForegroundColor Yellow }
+            'PathNotFound' { Write-Host "    $($reg.Name) : Path not found" -ForegroundColor Yellow }
+        }
+    }
+
+    Write-Host ''
+    Write-Host '  --- Startup Entries ---' -ForegroundColor Cyan
+    if ($data.Startup.Count -gt 0) {
+        foreach ($entry in $data.Startup) {
+            $color = if ($entry.Disabled) { 'Green' } else { 'Red' }
+            $state = if ($entry.Disabled) { 'Disabled' } else { 'Enabled (ACTIVE)' }
+            Write-Host "    $($entry.Name) : $state" -ForegroundColor $color
+        }
+    } else {
         Write-Host '    No Adobe startup entries found' -ForegroundColor DarkGray
     }
 
-    # Watchdog task
     Write-Host ''
     Write-Host '  --- Watchdog ---' -ForegroundColor Cyan
-    $wdTask = Get-ScheduledTask -TaskName $script:WatchdogTaskName -ErrorAction SilentlyContinue
-    if ($wdTask) {
-        Write-Host "    $($script:WatchdogTaskName) : $($wdTask.State)" -ForegroundColor Green
+    if ($data.Watchdog.Installed) {
+        Write-Host "    $($script:WatchdogTaskName) : $($data.Watchdog.State)" -ForegroundColor Green
     } else {
         Write-Host "    $($script:WatchdogTaskName) : Not installed" -ForegroundColor DarkGray
     }
@@ -2553,3 +2621,12 @@ Write-Host '  Note: Premiere/Photoshop will continue to function normally.' -For
 Write-Host "  Log saved to: $script:LogFile" -ForegroundColor Gray
 Write-Host "  JSONL log saved to: $script:JsonLogFile" -ForegroundColor Gray
 Write-Host ''
+
+# Exit codes: 0=success/dry-run, 1=fatal, 3=partial success, 3010=success+reboot recommended
+if ($DryRun) {
+    exit 0
+} elseif ($script:Counters.Errors -gt 0) {
+    exit 3
+} else {
+    exit 3010
+}

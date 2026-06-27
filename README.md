@@ -2,7 +2,7 @@
 
 # Disable-AdobeTelemetry
 
-![Version](https://img.shields.io/badge/version-v2.2.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-PowerShell-lightgrey)
+![Version](https://img.shields.io/badge/version-v2.3.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-PowerShell-lightgrey)
 
 A PowerShell script that comprehensively disables Adobe's background telemetry, analytics, in-app marketing (GrowthSDK), and persistent background processes that run even after closing Adobe applications.
 
@@ -118,6 +118,23 @@ A WPF companion GUI with Catppuccin Mocha dark theme, profile selection, dry run
 ```
 
 The script executes immediately without confirmation prompts and recommends a reboot at completion.
+
+### Machine-Readable Status
+
+```powershell
+# JSON output for fleet management / automation
+.\Disable-AdobeTelemetry.ps1 -StatusOnly -OutputFormat JSON
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success (no reboot needed) or dry run completed |
+| `1` | Fatal error |
+| `2` | Invalid arguments |
+| `3` | Partial success (some phases encountered errors) |
+| `3010` | Success, reboot recommended (SCCM/Intune convention) |
 
 ### Best Results
 
