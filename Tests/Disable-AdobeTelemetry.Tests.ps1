@@ -351,6 +351,28 @@ Describe 'Manifest Round-Trip' {
     }
 }
 
+Describe 'Dynamic Keywords FQDN' {
+    It 'includes FQDN wildcard patterns for Adobe domains' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match '\*\.adobe\.io'
+        $scriptContent | Should -Match '\*\.adobestats\.io'
+        $scriptContent | Should -Match '\*\.demdex\.net'
+    }
+
+    It 'checks Defender and Network Protection prerequisites' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'Get-MpComputerStatus'
+        $scriptContent | Should -Match 'Get-MpPreference'
+        $scriptContent | Should -Match 'EnableNetworkProtection'
+    }
+
+    It 'handles AddDynamicKeyword action type in manifest undo' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match "'AddDynamicKeyword'"
+        $scriptContent | Should -Match 'Remove-NetFirewallDynamicKeywordAddress'
+    }
+}
+
 Describe 'DISA STIG Hardening' {
     It 'includes STIG registry keys for Aggressive profile' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw

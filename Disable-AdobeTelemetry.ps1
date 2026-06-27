@@ -1067,6 +1067,70 @@ function Block-AdobeFirewall {
             }
         }
     }
+
+    # FQDN wildcard firewall rules via Dynamic Keywords (Windows 10 20H2+, requires Defender + Network Protection)
+    $dynamicKeywordsAvailable = $false
+    try {
+        $mpStatus = Get-MpComputerStatus -ErrorAction Stop
+        $mpPrefs = Get-MpPreference -ErrorAction Stop
+        if ($mpStatus.AMRunningMode -eq 'Normal' -and $mpPrefs.EnableNetworkProtection -ge 1) {
+            $dynamicKeywordsAvailable = (Get-Command New-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue) -ne $null
+        }
+    } catch { }
+
+    if ($dynamicKeywordsAvailable) {
+        $fqdnPatterns = @(
+            '*.adobe.io'
+            '*.adobestats.io'
+            '*.demdex.net'
+            '*.adobedtm.com'
+            '*.adobegenuine.com'
+        )
+
+        # Remove existing Dynamic Keyword rules from previous runs
+        $existingDk = Get-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue |
+            Where-Object { $_.Keyword -like '*adobe*' -or $_.Keyword -like '*demdex*' -or $_.Keyword -like '*adobedtm*' }
+        if ($existingDk) {
+            foreach ($dk in $existingDk) {
+                Remove-NetFirewallDynamicKeywordAddress -Id $dk.Id -ErrorAction SilentlyContinue
+            }
+        }
+
+        if ($DryRun) {
+            Write-Status "Would create $($fqdnPatterns.Count) FQDN wildcard firewall rules via Dynamic Keywords" -Type DryRun
+        } else {
+            $dkCreated = 0
+            foreach ($pattern in $fqdnPatterns) {
+                try {
+                    $dkId = '{' + (New-Guid).ToString() + '}'
+                    New-NetFirewallDynamicKeywordAddress -Id $dkId -Keyword $pattern -AutoResolve $true -ErrorAction Stop
+                    New-NetFirewallRule -DisplayName "Block Adobe Telemetry - FQDN $pattern" `
+                        -Direction Outbound `
+                        -Action Block `
+                        -RemoteDynamicKeywordAddresses $dkId `
+                        -Profile Any `
+                        -Enabled True `
+                        -Description "Blocks outbound to $pattern via FQDN Dynamic Keyword." |
+                        Out-Null
+                    Add-ManifestAction -Phase 'Firewall' -Action 'AddFirewallRule' -Details @{
+                        DisplayName = "Block Adobe Telemetry - FQDN $pattern"
+                    }
+                    Add-ManifestAction -Phase 'Firewall' -Action 'AddDynamicKeyword' -Details @{
+                        Id = $dkId; Keyword = $pattern
+                    }
+                    $dkCreated++
+                } catch {
+                    Write-Status "Dynamic Keyword failed for $pattern : $($_.Exception.Message)" -Type Warning
+                }
+            }
+            if ($dkCreated -gt 0) {
+                Write-Status "Created $dkCreated FQDN wildcard firewall rules (handles subdomain rotation automatically)" -Type Success
+                $script:Counters.FirewallRulesAdded += $dkCreated
+            }
+        }
+    } else {
+        Write-Status 'Dynamic Keywords not available (requires Defender + Network Protection) — using IP-based rules only' -Type Info
+    }
 }
 
 function Block-AdobeHostsFile {
@@ -1720,6 +1784,14 @@ function Invoke-ManifestUndo {
                         Write-Status "Restored startup value: $path\$name" -Type Success
                     }
                 }
+                'AddDynamicKeyword' {
+                    $dkId = Get-ManifestDetail $details 'Id'
+                    $keyword = Get-ManifestDetail $details 'Keyword'
+                    if ($dkId) {
+                        Remove-NetFirewallDynamicKeywordAddress -Id $dkId -ErrorAction SilentlyContinue
+                        Write-Status "Removed Dynamic Keyword: $keyword ($dkId)" -Type Success
+                    }
+                }
                 'HostsBackup' {
                     $backupPath = Get-ManifestDetail $details 'BackupPath'
                     Write-Status "Hosts backup was saved at: $backupPath" -Type Info
@@ -1783,7 +1855,17 @@ function Invoke-Undo {
         Write-Status 'No Adobe telemetry firewall rules found' -Type Warning
     }
 
-    # 3b. Remove persistent null routes for telemetry IPs
+    # 3b. Remove Dynamic Keyword FQDN rules
+    $existingDk = Get-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue |
+        Where-Object { $_.Keyword -like '*adobe*' -or $_.Keyword -like '*demdex*' -or $_.Keyword -like '*adobedtm*' }
+    if ($existingDk) {
+        foreach ($dk in $existingDk) {
+            Remove-NetFirewallDynamicKeywordAddress -Id $dk.Id -ErrorAction SilentlyContinue
+        }
+        Write-Status "Removed $(@($existingDk).Count) Dynamic Keyword address(es)" -Type Success
+    }
+
+    # 3c. Remove persistent null routes for telemetry IPs
     Write-Status 'Removing persistent null routes' -Type Header
     $routeOutput = route print 2>&1
     $routesRemoved = 0
