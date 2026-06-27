@@ -139,10 +139,6 @@ $colors = @{
                 <CheckBox x:Name="DryRunCheck" Content="Dry Run"/>
                 <CheckBox x:Name="VerboseCheck" Content="Verbose"/>
             </StackPanel>
-
-            <StackPanel Grid.Column="2" Margin="0,0,16,0">
-                <CheckBox x:Name="UpstreamCheck" Content="Merge upstream domains" IsChecked="True"/>
-            </StackPanel>
         </Grid>
 
         <!-- Action buttons -->
@@ -309,7 +305,13 @@ function Invoke-ScriptAsync {
         }
     }) | Out-Null
 
-    $ps.BeginInvoke() | Out-Null
+    $handle = $ps.BeginInvoke()
+    Register-ObjectEvent -InputObject $ps -EventName InvocationStateChanged -Action {
+        if ($Sender.InvocationStateInfo.State -in 'Completed','Failed','Stopped') {
+            $Sender.Dispose()
+            $Sender.Runspace.Dispose()
+        }
+    } | Out-Null
 }
 
 function Get-SelectedProfile {
@@ -318,17 +320,17 @@ function Get-SelectedProfile {
 }
 
 function Build-CommonArgs {
-    $args = @()
-    $profile = Get-SelectedProfile
-    if ($profile -ne 'Standard') { $args += '-Profile'; $args += $profile }
-    if ($dryRunCheck.IsChecked) { $args += '-DryRun' }
-    if ($verboseCheck.IsChecked) { $args += '-Verbose' }
-    return $args
+    $cmdArgs = @()
+    $selectedProfile = Get-SelectedProfile
+    if ($selectedProfile -ne 'Standard') { $cmdArgs += '-Profile'; $cmdArgs += $selectedProfile }
+    if ($dryRunCheck.IsChecked) { $cmdArgs += '-DryRun' }
+    if ($verboseCheck.IsChecked) { $cmdArgs += '-Verbose' }
+    return $cmdArgs
 }
 
 $runButton.Add_Click({
-    $args = Build-CommonArgs
-    Invoke-ScriptAsync -Arguments $args -StatusMsg 'Applying protections...'
+    $cmdArgs = Build-CommonArgs
+    Invoke-ScriptAsync -Arguments $cmdArgs -StatusMsg 'Applying protections...'
 })
 
 $statusButton.Add_Click({
