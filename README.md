@@ -51,6 +51,9 @@ aepxlg.adobe.com             utut-service.adobe.com       senseimds.adobe.io
 cai-splunk-proxy.adobe.io    client.messaging.adobe.com   server.messaging.adobe.com
 ui.messaging.adobe.com       detect-ccd.creativecloud.adobe.com
 prod-rel-ffc-ccm.oobesaas.adobe.com
+firefly-ae.adobe.io          fire-fly.adobe.io            hz-telemetry.adobe.io
+hz-telemetry-next.adobe.io   sensei-irl1.adobe.io         senseicore-ew1.adobe.io
+dc-genai-access-provisioning-api.adobe.io                 o1383653.ingest.sentry.io
 r.openx.net                  dpm.demdex.net               bam.nr-data.net
 fls.doubleclick.net
 ```
