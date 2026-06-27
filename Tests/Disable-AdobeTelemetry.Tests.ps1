@@ -439,3 +439,112 @@ Describe 'GUI Script' {
         $guiStatusVersion | Should -Be $mainVersion
     }
 }
+
+Describe 'Negative / Edge-Case Tests' {
+    It 'Invoke-ManifestUndo returns false for malformed JSON manifest' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $manifestUndo = $funcDefs | Where-Object { $_.Name -eq 'Invoke-ManifestUndo' }
+        $getManifestDetail = $funcDefs | Where-Object { $_.Name -eq 'Get-ManifestDetail' }
+        $initDir = $funcDefs | Where-Object { $_.Name -eq 'Initialize-AppDataDirectory' }
+
+        $tempDir = Join-Path $env:TEMP "PesterNegative_$(Get-Random)"
+        New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
+        try {
+            $script:ManifestDir = $tempDir
+            $script:ManifestPath = Join-Path $tempDir 'undo-manifest.json'
+            $script:LogDir = Join-Path $tempDir 'logs'
+            $script:LogFile = Join-Path $tempDir 'test.log'
+            $script:JsonLogFile = Join-Path $tempDir 'test.jsonl'
+            $script:Counters = @{ Errors = 0 }
+            $DryRun = $false; $Undo = $false; $StatusOnly = $false; $Verbose = $false
+            $Profile = 'Standard'; $OutputFormat = 'Text'
+
+            Invoke-Expression $initDir.Extent.Text
+            function Write-Status { param([string]$Message, [string]$Type = 'Info') }
+            Invoke-Expression $manifestUndo.Extent.Text
+            Invoke-Expression $getManifestDetail.Extent.Text
+
+            # Write malformed JSON
+            Set-Content -Path $script:ManifestPath -Value '{ this is not valid JSON !!!' -Force
+            $result = Invoke-ManifestUndo
+            $result | Should -Be $false
+        } finally {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'Invoke-ManifestUndo returns false for old schema version 1' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $manifestUndo = $funcDefs | Where-Object { $_.Name -eq 'Invoke-ManifestUndo' }
+        $getManifestDetail = $funcDefs | Where-Object { $_.Name -eq 'Get-ManifestDetail' }
+        $initDir = $funcDefs | Where-Object { $_.Name -eq 'Initialize-AppDataDirectory' }
+
+        $tempDir = Join-Path $env:TEMP "PesterOldSchema_$(Get-Random)"
+        New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
+        try {
+            $script:ManifestDir = $tempDir
+            $script:ManifestPath = Join-Path $tempDir 'undo-manifest.json'
+            $script:LogDir = Join-Path $tempDir 'logs'
+            $script:LogFile = Join-Path $tempDir 'test.log'
+            $script:JsonLogFile = Join-Path $tempDir 'test.jsonl'
+            $script:Counters = @{ Errors = 0 }
+            $DryRun = $false; $Undo = $false; $StatusOnly = $false; $Verbose = $false
+            $Profile = 'Standard'; $OutputFormat = 'Text'
+
+            Invoke-Expression $initDir.Extent.Text
+            function Write-Status { param([string]$Message, [string]$Type = 'Info') }
+            Invoke-Expression $manifestUndo.Extent.Text
+            Invoke-Expression $getManifestDetail.Extent.Text
+
+            # Write old schema version 1 manifest
+            $oldManifest = @{ SchemaVersion = 1; Actions = @() } | ConvertTo-Json -Depth 3
+            Set-Content -Path $script:ManifestPath -Value $oldManifest -Force
+            $result = Invoke-ManifestUndo
+            $result | Should -Be $false
+        } finally {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'Merge-UpstreamDomains filters out all safelist-only content' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        # Verify that the safelist filtering logic uses -notcontains
+        $scriptContent | Should -Match 'DomainSafelist\s+-notcontains'
+        # Verify safelist has at least 5 entries
+        $safelistMatch = [regex]::Match($scriptContent, '\$script:DomainSafelist\s*=\s*@\(([^)]+)\)')
+        $safelistDomains = $safelistMatch.Groups[1].Value -split "`n" |
+            ForEach-Object { $_.Trim().Trim("'").Trim('"') } |
+            Where-Object { $_ -and $_ -ne '' }
+        $safelistDomains.Count | Should -BeGreaterOrEqual 5
+        # None of the safelist domains should appear in the Minimal tier
+        $minimalMatch = [regex]::Match($scriptContent, '\$TelemetryDomainsMinimal\s*=\s*@\(([^)]+)\)')
+        $minimalDomains = $minimalMatch.Groups[1].Value -split "`n" |
+            ForEach-Object { $_.Trim().Trim("'").Trim('"') } |
+            Where-Object { $_ -and $_ -ne '' }
+        foreach ($safeDomain in $safelistDomains) {
+            $minimalDomains | Should -Not -Contain $safeDomain
+        }
+    }
+
+    It 'Get-StatusData defines all required status fields' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        # Extract the Get-StatusData function and verify it initializes all required fields
+        $funcMatch = [regex]::Match($scriptContent, '(?s)function Get-StatusData\s*\{(.+?)^\}', [System.Text.RegularExpressions.RegexOptions]::Multiline)
+        $funcMatch.Success | Should -BeTrue
+        $funcBody = $funcMatch.Groups[1].Value
+        $funcBody | Should -Match 'Version'
+        $funcBody | Should -Match 'Timestamp'
+        $funcBody | Should -Match 'Computer'
+        $funcBody | Should -Match 'Services'
+        $funcBody | Should -Match 'Tasks'
+        $funcBody | Should -Match 'GrowthSDK'
+        $funcBody | Should -Match 'Firewall'
+        $funcBody | Should -Match 'Connections'
+        $funcBody | Should -Match 'HostsFile'
+        $funcBody | Should -Match 'IFEO'
+        $funcBody | Should -Match 'Registry'
+        $funcBody | Should -Match 'Startup'
+        $funcBody | Should -Match 'Watchdog'
+        $funcBody | Should -Match 'DynamicKeywords'
+    }
+}
