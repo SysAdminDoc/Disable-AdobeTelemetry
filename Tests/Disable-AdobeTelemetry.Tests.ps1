@@ -410,3 +410,32 @@ Describe 'Upstream Domain Merge Filtering' {
         $safelistDomains | Should -Contain 'ardownload2.adobe.com'
     }
 }
+
+Describe 'GUI Script' {
+    It 'parses without errors' {
+        $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
+        if (-not (Test-Path $guiPath)) { Set-ItResult -Skipped -Because 'GUI script not present'; return }
+        $errors = $null
+        $null = [System.Management.Automation.Language.Parser]::ParseFile($guiPath, [ref]$null, [ref]$errors)
+        $errors.Count | Should -Be 0
+    }
+
+    It 'version strings match main script version' {
+        $mainContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
+        if (-not (Test-Path $guiPath)) { Set-ItResult -Skipped -Because 'GUI script not present'; return }
+        $guiContent = Get-Content $guiPath -Raw
+
+        $mainVersion = ([regex]::Match($mainContent, "DisplayVersion\s*=\s*'v(\d+\.\d+\.\d+)'")).Groups[1].Value
+        $mainVersion | Should -Not -BeNullOrEmpty
+
+        $guiNotesVersion = ([regex]::Match($guiContent, 'Version\s*:\s*(\d+\.\d+\.\d+)')).Groups[1].Value
+        $guiNotesVersion | Should -Be $mainVersion
+
+        $guiTitleVersion = ([regex]::Match($guiContent, 'Title="[^"]*v(\d+\.\d+\.\d+)"')).Groups[1].Value
+        $guiTitleVersion | Should -Be $mainVersion
+
+        $guiStatusVersion = ([regex]::Match($guiContent, 'Text="v(\d+\.\d+\.\d+)"')).Groups[1].Value
+        $guiStatusVersion | Should -Be $mainVersion
+    }
+}
