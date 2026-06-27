@@ -6,7 +6,7 @@
     with streaming log output. All operations run asynchronously to keep the UI responsive.
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.2.0
+    Version : 2.3.0
     Date    : 2026-06-27
 #>
 
