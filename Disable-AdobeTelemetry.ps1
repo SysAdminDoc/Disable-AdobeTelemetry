@@ -2124,6 +2124,27 @@ function Get-StatusData {
     $fwRules = Get-NetFirewallRule -DisplayName 'Block Adobe Telemetry*' -ErrorAction SilentlyContinue
     $statusData.Firewall.RuleCount = if ($fwRules) { @($fwRules).Count } else { 0 }
 
+    $dkAvailable = $false
+    $dkPatterns = @()
+    try {
+        $mpStatus = Get-MpComputerStatus -ErrorAction Stop
+        $mpPrefs = Get-MpPreference -ErrorAction Stop
+        if ($mpStatus.AMRunningMode -eq 'Normal' -and $mpPrefs.EnableNetworkProtection -ge 1) {
+            $dkAvailable = $null -ne (Get-Command New-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue)
+        }
+    } catch { }
+    $existingDk = @()
+    if ($dkAvailable) {
+        $existingDk = @(Get-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue |
+            Where-Object { $_.Keyword -like '*adobe*' -or $_.Keyword -like '*demdex*' -or $_.Keyword -like '*adobedtm*' })
+        $dkPatterns = @($existingDk | ForEach-Object { $_.Keyword })
+    }
+    $statusData.Firewall.DynamicKeywords = @{
+        Available = $dkAvailable
+        Count     = $existingDk.Count
+        Patterns  = $dkPatterns
+    }
+
     $connections = @(Get-AdobeTelemetryConnections)
     $statusData.Connections.Count = $connections.Count
 
@@ -2234,6 +2255,12 @@ function Show-Status {
     Write-Host '  --- Firewall Rules ---' -ForegroundColor Cyan
     $fwColor = if ($data.Firewall.RuleCount -gt 0) { 'Green' } else { 'Yellow' }
     Write-Host "    Adobe telemetry block rules: $($data.Firewall.RuleCount)" -ForegroundColor $fwColor
+    if ($data.Firewall.DynamicKeywords.Available) {
+        $dkColor = if ($data.Firewall.DynamicKeywords.Count -gt 0) { 'Green' } else { 'Yellow' }
+        Write-Host "    FQDN Dynamic Keywords: $($data.Firewall.DynamicKeywords.Count) active ($($data.Firewall.DynamicKeywords.Patterns -join ', '))" -ForegroundColor $dkColor
+    } else {
+        Write-Host '    FQDN Dynamic Keywords: Not available (requires Defender + Network Protection)' -ForegroundColor DarkGray
+    }
 
     Write-Host ''
     Write-Host '  --- Live Connections ---' -ForegroundColor Cyan
