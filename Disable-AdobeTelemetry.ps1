@@ -56,7 +56,7 @@
 
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.3.0
+    Version : 2.3.1
     Date    : 2026-06-27
 
     Exit codes:
@@ -128,7 +128,7 @@ if (-not $isAdmin) {
 
 $ErrorActionPreference = 'Continue'
 
-$script:DisplayVersion = 'v2.3.0'
+$script:DisplayVersion = 'v2.3.1'
 $script:Version = $script:DisplayVersion.TrimStart('v')
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
 $script:LogDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\logs'
@@ -2562,7 +2562,7 @@ function Install-Watchdog {
     $warnPaths = @($env:TEMP, "$env:USERPROFILE\Downloads", "$env:USERPROFILE\Desktop")
     foreach ($warnPath in $warnPaths) {
         if ($warnPath -and $scriptFullPath -like "$warnPath*") {
-            Write-Status "WARNING: Script is in '$warnPath' — if moved, the watchdog task will fail silently. Consider copying to a permanent location first." -Type Warning
+            Write-Status ("WARNING: Script is in '{0}' - if moved, the watchdog task will fail silently. Consider copying to a permanent location first." -f $warnPath) -Type Warning
         }
     }
 
@@ -2573,10 +2573,14 @@ function Install-Watchdog {
         }
     } catch { }
 
-    # Wrap the scheduled action with a path check so failures are visible in Event Viewer
-    $preCheck = "if (-not (Test-Path '$scriptFullPath')) { try { Write-EventLog -LogName Application -Source 'Disable-AdobeTelemetry' -EventId 1001 -EntryType Warning -Message 'Watchdog: script not found at $scriptFullPath' } catch {}; exit 1 }"
+    # Wrap the scheduled action with a path check so failures are visible in Event Viewer.
+    $quote = [char]39
+    $escapedScriptPath = $scriptFullPath.Replace($quote, "$quote$quote")
+    $watchdogCommandTemplate = 'if (-not (Test-Path -LiteralPath ''{0}'')) {{ try {{ Write-EventLog -LogName Application -Source ''Disable-AdobeTelemetry'' -EventId 1001 -EntryType Warning -Message ''Watchdog: script not found at {0}'' }} catch {{ }}; exit 1 }}; & ''{0}'' -Skip Kill'
+    $watchdogCommand = $watchdogCommandTemplate -f $escapedScriptPath
+    $encodedWatchdogCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($watchdogCommand))
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
-        -Argument "-NoProfile -ExecutionPolicy Bypass -Command `"$preCheck; & '$scriptFullPath' -Skip Kill`""
+        -Argument "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encodedWatchdogCommand"
     $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At '09:00'
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `

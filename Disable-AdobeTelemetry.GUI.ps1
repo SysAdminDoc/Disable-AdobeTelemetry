@@ -6,7 +6,7 @@
     with streaming log output. All operations run asynchronously to keep the UI responsive.
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.3.0
+    Version : 2.3.1
     Date    : 2026-06-27
 #>
 
@@ -48,7 +48,7 @@ $colors = @{
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Disable-AdobeTelemetry v2.3.0"
+        Title="Disable-AdobeTelemetry v2.3.1"
         Width="780" Height="620"
         MinWidth="600" MinHeight="450"
         Background="$($colors.Base)"
@@ -178,7 +178,7 @@ $colors = @{
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="StatusText" Grid.Column="0" Text="Ready"
                            Foreground="$($colors.Subtext0)" FontSize="12" VerticalAlignment="Center"/>
-                <TextBlock x:Name="VersionText" Grid.Column="1" Text="v2.3.0"
+                <TextBlock x:Name="VersionText" Grid.Column="1" Text="v2.3.1"
                            Foreground="$($colors.Surface2)" FontSize="11" VerticalAlignment="Center"/>
             </Grid>
         </Border>
@@ -211,6 +211,7 @@ $colorMap = @{
 
 function Write-LogLine {
     param([string]$Text)
+    $message = $Text
     $window.Dispatcher.Invoke([Action]{
         $doc = $logBox.Document
         $para = New-Object System.Windows.Documents.Paragraph
@@ -218,13 +219,13 @@ function Write-LogLine {
 
         $fg = $colors.Text
         foreach ($key in $colorMap.Keys) {
-            if ($Text -match [regex]::Escape($key)) {
+            if ($message -match [regex]::Escape($key)) {
                 $fg = $colorMap[$key]
                 break
             }
         }
 
-        $run = New-Object System.Windows.Documents.Run $Text
+        $run = New-Object System.Windows.Documents.Run $message
         $run.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString($fg)
         $para.Inlines.Add($run)
         $doc.Blocks.Add($para)
@@ -234,18 +235,20 @@ function Write-LogLine {
 
 function Set-UIEnabled {
     param([bool]$Enabled)
+    $isEnabled = $Enabled
     $window.Dispatcher.Invoke([Action]{
-        $runButton.IsEnabled = $Enabled
-        $statusButton.IsEnabled = $Enabled
-        $undoButton.IsEnabled = $Enabled
-        $connectionButton.IsEnabled = $Enabled
+        $runButton.IsEnabled = $isEnabled
+        $statusButton.IsEnabled = $isEnabled
+        $undoButton.IsEnabled = $isEnabled
+        $connectionButton.IsEnabled = $isEnabled
     })
 }
 
 function Set-StatusText {
     param([string]$Text)
+    $message = $Text
     $window.Dispatcher.Invoke([Action]{
-        $statusText.Text = $Text
+        $statusText.Text = $message
     })
 }
 
@@ -305,7 +308,7 @@ function Invoke-ScriptAsync {
         }
     }) | Out-Null
 
-    $handle = $ps.BeginInvoke()
+    [void]$ps.BeginInvoke()
     Register-ObjectEvent -InputObject $ps -EventName InvocationStateChanged -Action {
         if ($Sender.InvocationStateInfo.State -in 'Completed','Failed','Stopped') {
             $Sender.Dispose()
@@ -319,7 +322,7 @@ function Get-SelectedProfile {
     if ($item) { return $item.Content } else { return 'Standard' }
 }
 
-function Build-CommonArgs {
+function New-CommonArgs {
     $cmdArgs = @()
     $selectedProfile = Get-SelectedProfile
     if ($selectedProfile -ne 'Standard') { $cmdArgs += '-Profile'; $cmdArgs += $selectedProfile }
@@ -329,7 +332,7 @@ function Build-CommonArgs {
 }
 
 $runButton.Add_Click({
-    $cmdArgs = Build-CommonArgs
+    $cmdArgs = New-CommonArgs
     Invoke-ScriptAsync -Arguments $cmdArgs -StatusMsg 'Applying protections...'
 })
 
@@ -350,7 +353,7 @@ $clearButton.Add_Click({
     $statusText.Text = 'Ready'
 })
 
-Write-LogLine "  Disable-AdobeTelemetry GUI v2.3.0"
+Write-LogLine "  Disable-AdobeTelemetry GUI v2.3.1"
 Write-LogLine "  Script: $mainScript"
 Write-LogLine ""
 
