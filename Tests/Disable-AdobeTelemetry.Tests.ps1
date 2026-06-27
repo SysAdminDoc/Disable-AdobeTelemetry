@@ -351,6 +351,25 @@ Describe 'Manifest Round-Trip' {
     }
 }
 
+Describe 'DISA STIG Hardening' {
+    It 'includes STIG registry keys for Aggressive profile' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'bProtectedMode'
+        $scriptContent | Should -Match 'iProtectedView'
+        $scriptContent | Should -Match 'bEnhancedSecurityStandalone'
+        $scriptContent | Should -Match 'bEnhancedSecurityInBrowser'
+        $scriptContent | Should -Match 'bDisableTrustedFolders'
+        $scriptContent | Should -Match 'bEnableProtectedModeAppContainer'
+        $scriptContent | Should -Match 'iURLPerms'
+        $scriptContent | Should -Match 'iUnknownURLPerms'
+    }
+
+    It 'only applies STIG keys when Profile is Aggressive' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match "Profile -eq 'Aggressive'[\s\S]*?bProtectedMode"
+    }
+}
+
 Describe 'Upstream Domain Merge Filtering' {
     It 'Merge-UpstreamDomains function filters safelist domains' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw

@@ -1523,6 +1523,33 @@ function Disable-AcrobatTelemetry {
                 Path   = "$basePath\cSharePoint"
                 Values = @{ 'bDisableSharePointFeatures' = 1 }
             }
+
+            # DISA STIG v2r1 + NSA CTR hardening keys (Aggressive profile only)
+            if ($Profile -eq 'Aggressive') {
+                $acrobatPolicies += @{
+                    Path   = $basePath
+                    Values = @{
+                        'bProtectedMode'                   = 1
+                        'iProtectedView'                   = 2
+                        'bEnhancedSecurityStandalone'       = 1
+                        'bEnhancedSecurityInBrowser'        = 1
+                        'iFileAttachmentPerms'              = 1
+                        'bEnableFlash'                      = 0
+                        'bDisableTrustedFolders'            = 1
+                        'bDisableTrustedSites'              = 1
+                        'bDisableOSTrustedSites'            = 1
+                        'bEnableProtectedModeAppContainer'  = 1
+                        'bEnableCertificateBasedTrust'      = 0
+                    }
+                }
+                $acrobatPolicies += @{
+                    Path   = "$basePath\cDefaultLaunchURLPerms"
+                    Values = @{
+                        'iURLPerms'        = 1
+                        'iUnknownURLPerms' = 3
+                    }
+                }
+            }
         }
     }
 
