@@ -122,12 +122,14 @@ A WPF companion GUI with Catppuccin Mocha dark theme, profile selection, dry run
 
 The script executes immediately without confirmation prompts and recommends a reboot at completion.
 
-### Machine-Readable Status
+### Machine-Readable Output
 
 ```powershell
-# JSON output for fleet management / automation
+# JSON status snapshot for fleet management / automation
 .\Disable-AdobeTelemetry.ps1 -StatusOnly -OutputFormat JSON
 ```
+
+Each apply/undo run also writes a structured JSONL log to `%APPDATA%\Disable-AdobeTelemetry\logs\Disable-AdobeTelemetry-<timestamp>.jsonl` with per-action entries for ingestion by fleet management tools.
 
 ### Exit Codes
 
