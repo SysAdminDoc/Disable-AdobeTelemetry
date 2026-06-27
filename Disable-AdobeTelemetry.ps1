@@ -118,7 +118,7 @@ $script:ManifestDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry'
 $script:ManifestPath = Join-Path $script:ManifestDir 'undo-manifest.json'
 $script:ManifestActions = @()
 
-function Ensure-AppDataDirectory {
+function Initialize-AppDataDirectory {
     if (-not (Test-Path $script:ManifestDir)) {
         New-Item -Path $script:ManifestDir -ItemType Directory -Force | Out-Null
     }
@@ -145,7 +145,7 @@ function Add-ManifestAction {
 function Save-Manifest {
     if ($DryRun) { return }
     if ($script:ManifestActions.Count -eq 0) { return }
-    Ensure-AppDataDirectory
+    Initialize-AppDataDirectory
     $manifest = @{
         Version       = $script:Version
         SchemaVersion = 2
@@ -456,7 +456,7 @@ function Write-Status {
     )
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
     $logLine = "[$timestamp] [$Type] $Message"
-    Ensure-AppDataDirectory
+    Initialize-AppDataDirectory
     Add-Content -Path $script:LogFile -Value $logLine -ErrorAction SilentlyContinue
     $jsonEntry = [ordered]@{
         timestamp = (Get-Date -Format 'o')
@@ -491,6 +491,7 @@ function Get-RegistryValueKind {
         [string]$Path,
         [string]$Name
     )
+    $key = $null
     try {
         $keyPath = $Path -replace '^HKLM:\\', 'HKEY_LOCAL_MACHINE\' -replace '^HKCU:\\', 'HKEY_CURRENT_USER\'
         $baseName = if ($keyPath -like 'HKEY_LOCAL_MACHINE\*') { 'LocalMachine' } else { 'CurrentUser' }
@@ -500,7 +501,10 @@ function Get-RegistryValueKind {
         if ($key) {
             return $key.GetValueKind($Name).ToString()
         }
-    } catch { }
+    } catch {
+    } finally {
+        if ($key) { $key.Close() }
+    }
     return $null
 }
 
@@ -1672,6 +1676,13 @@ function Invoke-ManifestUndo {
                         Write-Status "Restored startup value: $path\$name" -Type Success
                     }
                 }
+                'HostsBackup' {
+                    $backupPath = Get-ManifestDetail $details 'BackupPath'
+                    Write-Status "Hosts backup was saved at: $backupPath" -Type Info
+                }
+                'RemoveHostsBlock' {
+                    Write-Status "WAM hosts injection was removed during apply" -Type Info
+                }
                 default {
                     Write-Status "Skipped manifest action type: $($entry.Action)" -Type Warning
                 }
@@ -2218,7 +2229,7 @@ function Find-AdobeAppExecutable {
 
 function Invoke-WfpTrace {
     Write-Status 'Windows Filtering Platform trace capture' -Type Header
-    Ensure-AppDataDirectory
+    Initialize-AppDataDirectory
     $outputPath = $TraceOutput
     if (-not $outputPath) {
         $outputPath = Join-Path $script:LogDir ("adobe-wfp-{0}.cab" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
@@ -2251,7 +2262,7 @@ function Invoke-PlumbingTest {
         exit 1
     }
 
-    Ensure-AppDataDirectory
+    Initialize-AppDataDirectory
     $captureRoot = Join-Path $script:LogDir ("plumbing-{0}-{1}" -f $AppName, (Get-Date -Format 'yyyyMMdd-HHmmss'))
     New-Item -Path $captureRoot -ItemType Directory -Force | Out-Null
     $connectionLog = Join-Path $captureRoot 'connections.jsonl'
@@ -2305,14 +2316,15 @@ function Invoke-CleanLauncher {
     Write-Status "Launching $AppName..." -Type Info
     $proc = Start-Process -FilePath $appExe -PassThru
 
-    Write-Status "Waiting for $AppName to exit (PID $($proc.Id))..." -Type Info
-    $proc.WaitForExit()
-    Write-Status "$AppName exited" -Type Info
-
-    # Re-kill telemetry processes after exit
-    Start-Sleep -Seconds 2
-    Stop-AdobeProcesses
-    Write-Status 'Telemetry processes cleaned up' -Type Success
+    try {
+        Write-Status "Waiting for $AppName to exit (PID $($proc.Id))..." -Type Info
+        $proc.WaitForExit()
+        Write-Status "$AppName exited" -Type Info
+    } finally {
+        Start-Sleep -Seconds 2
+        Stop-AdobeProcesses
+        Write-Status 'Telemetry processes cleaned up' -Type Success
+    }
 }
 
 # ── Watchdog Scheduled Task ───────────────────────────────────────────────────
@@ -2514,7 +2526,6 @@ if ($adobeApps) {
 # Create system restore point before making changes
 if (-not $DryRun) {
     try {
-        $srEnabled = (Get-ComputerRestorePoint -ErrorAction SilentlyContinue) -ne $null -or $true
         Checkpoint-Computer -Description 'Pre-Disable-AdobeTelemetry' -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
         Write-Status 'System restore point created' -Type Success
     } catch {
