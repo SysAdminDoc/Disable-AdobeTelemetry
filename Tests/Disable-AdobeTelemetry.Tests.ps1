@@ -508,23 +508,71 @@ Describe 'Negative / Edge-Case Tests' {
         }
     }
 
-    It 'Merge-UpstreamDomains filters out all safelist-only content' {
+    It 'safelist domains never appear in any telemetry tier' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
-        # Verify that the safelist filtering logic uses -notcontains
         $scriptContent | Should -Match 'DomainSafelist\s+-notcontains'
-        # Verify safelist has at least 5 entries
         $safelistMatch = [regex]::Match($scriptContent, '\$script:DomainSafelist\s*=\s*@\(([^)]+)\)')
         $safelistDomains = $safelistMatch.Groups[1].Value -split "`n" |
             ForEach-Object { $_.Trim().Trim("'").Trim('"') } |
             Where-Object { $_ -and $_ -ne '' }
         $safelistDomains.Count | Should -BeGreaterOrEqual 5
-        # None of the safelist domains should appear in the Minimal tier
-        $minimalMatch = [regex]::Match($scriptContent, '\$TelemetryDomainsMinimal\s*=\s*@\(([^)]+)\)')
-        $minimalDomains = $minimalMatch.Groups[1].Value -split "`n" |
-            ForEach-Object { $_.Trim().Trim("'").Trim('"') } |
-            Where-Object { $_ -and $_ -ne '' }
-        foreach ($safeDomain in $safelistDomains) {
-            $minimalDomains | Should -Not -Contain $safeDomain
+
+        foreach ($tier in @('TelemetryDomainsMinimal', 'TelemetryDomainsStandard', 'TelemetryDomainsAggressive')) {
+            $tierMatch = [regex]::Match($scriptContent, "\`$$tier\s*=\s*(?:[^@]*)?@\(([^)]+)\)")
+            if ($tierMatch.Success) {
+                $tierDomains = $tierMatch.Groups[1].Value -split "`n" |
+                    ForEach-Object { $_.Trim().Trim("'").Trim('"') } |
+                    Where-Object { $_ -and $_ -ne '' -and $_ -notmatch '^\$' }
+                foreach ($safeDomain in $safelistDomains) {
+                    $tierDomains | Should -Not -Contain $safeDomain -Because "$safeDomain is safelisted but found in $tier"
+                }
+            }
+        }
+    }
+
+    It 'profile export/import round-trip preserves domains' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $exportFunc = $funcDefs | Where-Object { $_.Name -eq 'Export-RunProfile' }
+        $importFunc = $funcDefs | Where-Object { $_.Name -eq 'Import-RunProfile' }
+        $initDir = $funcDefs | Where-Object { $_.Name -eq 'Initialize-AppDataDirectory' }
+
+        $exportFunc | Should -Not -BeNullOrEmpty
+        $importFunc | Should -Not -BeNullOrEmpty
+
+        $tempDir = Join-Path $env:TEMP "PesterProfileTest_$(Get-Random)"
+        New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
+        try {
+            $script:ManifestDir = $tempDir
+            $script:LogDir = Join-Path $tempDir 'logs'
+            $script:LogFile = Join-Path $tempDir 'test.log'
+            $script:JsonLogFile = Join-Path $tempDir 'test.jsonl'
+            $script:Version = '0.0.0-test'
+            $script:Counters = @{ Errors = 0 }
+            $DryRun = $false; $Undo = $false; $StatusOnly = $false; $ShowRationale = $false
+            $Profile = 'Standard'; $OutputFormat = 'Text'
+            $Only = $null; $Skip = $null
+            $TelemetryDomains = @('test1.adobe.io', 'test2.adobe.io', 'test3.demdex.net')
+
+            Invoke-Expression $initDir.Extent.Text
+            function Write-Status { param([string]$Message, [string]$Type = 'Info') }
+            Invoke-Expression $exportFunc.Extent.Text
+            Invoke-Expression $importFunc.Extent.Text
+
+            $profilePath = Join-Path $tempDir 'test-profile.json'
+            Export-RunProfile -Path $profilePath
+            Test-Path $profilePath | Should -BeTrue
+
+            $json = Get-Content $profilePath -Raw | ConvertFrom-Json
+            $json.Version | Should -Be '0.0.0-test'
+            $json.Profile | Should -Be 'Standard'
+            $json.Domains.Count | Should -Be 3
+
+            $TelemetryDomains = @()
+            Import-RunProfile -Path $profilePath
+            $script:TelemetryDomains.Count | Should -Be 3
+            $script:TelemetryDomains | Should -Contain 'test1.adobe.io'
+        } finally {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 
