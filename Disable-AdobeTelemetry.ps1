@@ -67,6 +67,8 @@
       3010 = Success, reboot recommended (SCCM/Intune convention)
 #>
 
+#Requires -Version 5.1
+
 param(
     [switch]$Undo,
     [switch]$StatusOnly,
@@ -283,6 +285,8 @@ $AdobeProcesses = @(
     'Adobe Substance 3D Stager'
     'Adobe Substance 3D Modeler'
     'Adobe Dimension'
+    'AdobeExtensionsService'
+    'Adobe Content Synchronizer'
     'node'  # Adobe CEF/Node helpers - filtered by path below
 )
 
@@ -373,6 +377,14 @@ $TelemetryDomainsStandard = $TelemetryDomainsMinimal + @(
     'client.messaging.adobe.com'
     'server.messaging.adobe.com'
     'ui.messaging.adobe.com'
+    'firefly-ae.adobe.io'
+    'fire-fly.adobe.io'
+    'dc-genai-access-provisioning-api.adobe.io'
+    'hz-telemetry.adobe.io'
+    'hz-telemetry-next.adobe.io'
+    'sensei-irl1.adobe.io'
+    'senseicore-ew1.adobe.io'
+    'o1383653.ingest.sentry.io'
 )
 $TelemetryDomainsAggressive = $TelemetryDomainsStandard + @(
     'use.typekit.net'
@@ -381,6 +393,8 @@ $TelemetryDomainsAggressive = $TelemetryDomainsStandard + @(
     'cctypekit.adobe.io'
     'cclibraries-defaults-cdn.adobe.com'
     'services.adobe.com'
+    'firefly-client-service-prod-va6.adobe.io'
+    'firefly-clio-imaging-preview.adobe.io'
 )
 
 # Select domain list based on profile
@@ -1011,7 +1025,8 @@ function Block-AdobeFirewall {
         'AdobeGCClient.exe', 'Adobe Crash Processor.exe', 'AcroCEF.exe', 'RdrCEF.exe', 'Acrobat.exe',
         'AcroRd32.exe', 'Adobe Dimension.exe', 'Adobe Substance 3D Painter.exe',
         'Adobe Substance 3D Designer.exe', 'Adobe Substance 3D Sampler.exe', 'Adobe Substance 3D Stager.exe',
-        'Creative Cloud.exe', 'Adobe CEF Helper.exe', 'AdobeNotificationClient.exe'
+        'Creative Cloud.exe', 'Adobe CEF Helper.exe', 'AdobeNotificationClient.exe',
+        'AdobeExtensionsService.exe', 'Adobe Content Synchronizer.exe'
     )
     foreach ($installPath in $script:AdobeInstallPaths) {
         if (-not (Test-Path $installPath)) { continue }
@@ -1091,6 +1106,7 @@ function Block-AdobeFirewall {
             '*.demdex.net'
             '*.adobedtm.com'
             '*.adobegenuine.com'
+            '*.hstatic.io'
         )
 
         # Remove existing Dynamic Keyword rules from previous runs
@@ -1564,8 +1580,10 @@ function Disable-AcrobatTelemetry {
                     'bToggleWebConnectors'       = 1
                     'bAdobeSendPluginToggle'     = 1
                     'bToggleAdobeDocumentServices' = 1
+                    'bToggleDocumentCloud'        = 1
                     'bToggleFillSign'            = 1
-                    'bToggleSendAndTrack'        = 1
+                    'bToggleSendAndTrack'         = 1
+                    'bToggleAcroSendAndTrack'     = 1
                 }
             }
             $acrobatPolicies += @{
