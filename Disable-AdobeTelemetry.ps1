@@ -2144,7 +2144,7 @@ function Show-Status {
     foreach ($ifeo in $data.IFEO) {
         if ($ifeo.Active) {
             Write-Host "    $($ifeo.Executable) IFEO: Active (Debugger=$($ifeo.Debugger))" -ForegroundColor Green
-        } elseif ($ifeo.Debugger -eq $null -and (Test-Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$($ifeo.Executable)")) {
+        } elseif ($null -eq $ifeo.Debugger -and (Test-Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$($ifeo.Executable)")) {
             Write-Host "    $($ifeo.Executable) IFEO: Key exists but no Debugger value" -ForegroundColor Yellow
         } else {
             Write-Host "    $($ifeo.Executable) IFEO: Not set" -ForegroundColor Yellow
