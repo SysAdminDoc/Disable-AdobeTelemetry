@@ -45,6 +45,11 @@
     app, waits for it to exit, then re-kills telemetry. No permanent system changes.
     Accepts app names: Photoshop, Illustrator, Premiere, AfterEffects, InDesign, etc.
 
+.PARAMETER ShowRationale
+    Shows a brief explanation ("Why") for each phase action. Alias: -Verbose (for
+    backward compatibility; the parameter was renamed to avoid shadowing PowerShell's
+    automatic $VerbosePreference variable).
+
 .PARAMETER OutputFormat
     Output format for -StatusOnly: Text (default, colored console output) or JSON
     (machine-readable structured output for fleet management tools).
@@ -84,7 +89,8 @@ param(
     [string]$PlumbingApp = 'Premiere',
     [ValidateRange(1,1440)]
     [int]$PlumbingMinutes = 10,
-    [switch]$Verbose,
+    [Alias('Verbose')]
+    [switch]$ShowRationale,
     [ValidateSet('Text','JSON')]
     [string]$OutputFormat = 'Text'
 )
@@ -110,7 +116,7 @@ if (-not $isAdmin) {
     if ($WfpTrace) { $argList += '-WfpTrace'; $argList += '-TraceMinutes'; $argList += $TraceMinutes }
     if ($TraceOutput) { $argList += '-TraceOutput'; $argList += "`"$TraceOutput`"" }
     if ($PlumbingTest) { $argList += '-PlumbingTest'; $argList += '-PlumbingApp'; $argList += "`"$PlumbingApp`""; $argList += '-PlumbingMinutes'; $argList += $PlumbingMinutes }
-    if ($Verbose) { $argList += '-Verbose' }
+    if ($ShowRationale) { $argList += '-ShowRationale' }
     if ($OutputFormat -ne 'Text') { $argList += '-OutputFormat'; $argList += $OutputFormat }
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     exit 0
@@ -498,7 +504,7 @@ function Write-Status {
 
 function Write-Rationale {
     param([string]$Message)
-    if ($Verbose) {
+    if ($ShowRationale) {
         Write-Status "Why: $Message" -Type Info
     }
 }
@@ -2683,8 +2689,8 @@ if ($DryRun) {
     Write-Host '  *** DRY RUN MODE - No changes will be made ***' -ForegroundColor Magenta
 }
 
-if ($Verbose) {
-    Write-Host '  Verbose rationale: enabled' -ForegroundColor Yellow
+if ($ShowRationale) {
+    Write-Host '  Show rationale: enabled' -ForegroundColor Yellow
 }
 if ($Profile -ne 'Standard') {
     Write-Host "  Profile: $Profile" -ForegroundColor Yellow
@@ -2704,7 +2710,7 @@ if ($DryRun)     { $logHeader += ' (DRY RUN mode)' }
 if ($Profile -ne 'Standard') { $logHeader += " (Profile: $Profile)" }
 if ($Only)       { $logHeader += " (Only: $($Only -join ','))" }
 if ($Skip)       { $logHeader += " (Skip: $($Skip -join ','))" }
-if ($Verbose)    { $logHeader += ' (Verbose rationale)' }
+if ($ShowRationale) { $logHeader += ' (ShowRationale)' }
 Add-Content -Path $script:LogFile -Value $logHeader -ErrorAction SilentlyContinue
 
 if ($StatusOnly) {

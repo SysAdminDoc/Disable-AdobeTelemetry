@@ -137,7 +137,7 @@ $colors = @{
 
             <StackPanel Grid.Column="1" Margin="0,0,16,0">
                 <CheckBox x:Name="DryRunCheck" Content="Dry Run"/>
-                <CheckBox x:Name="VerboseCheck" Content="Verbose"/>
+                <CheckBox x:Name="VerboseCheck" Content="Show Rationale"/>
             </StackPanel>
         </Grid>
 
@@ -324,7 +324,7 @@ function Build-CommonArgs {
     $selectedProfile = Get-SelectedProfile
     if ($selectedProfile -ne 'Standard') { $cmdArgs += '-Profile'; $cmdArgs += $selectedProfile }
     if ($dryRunCheck.IsChecked) { $cmdArgs += '-DryRun' }
-    if ($verboseCheck.IsChecked) { $cmdArgs += '-Verbose' }
+    if ($verboseCheck.IsChecked) { $cmdArgs += '-ShowRationale' }
     return $cmdArgs
 }
 

@@ -318,7 +318,7 @@ Describe 'Manifest Round-Trip' {
             $Skip = $null
             $Undo = $false
             $StatusOnly = $false
-            $Verbose = $false
+            $ShowRationale = $false
             $OutputFormat = 'Text'
 
             Invoke-Expression $initDir.Extent.Text
@@ -456,7 +456,7 @@ Describe 'Negative / Edge-Case Tests' {
             $script:LogFile = Join-Path $tempDir 'test.log'
             $script:JsonLogFile = Join-Path $tempDir 'test.jsonl'
             $script:Counters = @{ Errors = 0 }
-            $DryRun = $false; $Undo = $false; $StatusOnly = $false; $Verbose = $false
+            $DryRun = $false; $Undo = $false; $StatusOnly = $false; $ShowRationale = $false
             $Profile = 'Standard'; $OutputFormat = 'Text'
 
             Invoke-Expression $initDir.Extent.Text
@@ -488,7 +488,7 @@ Describe 'Negative / Edge-Case Tests' {
             $script:LogFile = Join-Path $tempDir 'test.log'
             $script:JsonLogFile = Join-Path $tempDir 'test.jsonl'
             $script:Counters = @{ Errors = 0 }
-            $DryRun = $false; $Undo = $false; $StatusOnly = $false; $Verbose = $false
+            $DryRun = $false; $Undo = $false; $StatusOnly = $false; $ShowRationale = $false
             $Profile = 'Standard'; $OutputFormat = 'Text'
 
             Invoke-Expression $initDir.Extent.Text
