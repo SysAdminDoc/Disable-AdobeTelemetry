@@ -220,6 +220,37 @@ Describe 'Script Configuration' {
     }
 }
 
+Describe 'IPv6 and Safelist' {
+    It 'resolves both InterNetwork and InterNetworkV6 in firewall function' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'InterNetworkV6'
+    }
+
+    It 'adds IPv6 sinkhole entries in hosts file block' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match '::.*\$domain'
+    }
+
+    It 'defines a domain safelist for upstream merge' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'DomainSafelist'
+        $scriptContent | Should -Match 'ims-na1\.adobelogin\.com'
+        $scriptContent | Should -Match 'auth\.services\.adobe\.com'
+    }
+
+    It 'safelist contains authentication and download domains' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $safelistMatch = [regex]::Match($scriptContent, '\$script:DomainSafelist\s*=\s*@\(([^)]+)\)')
+        $safelistMatch.Success | Should -BeTrue
+        $safelistDomains = $safelistMatch.Groups[1].Value -split "`n" |
+            ForEach-Object { $_.Trim().Trim("'").Trim('"') } |
+            Where-Object { $_ -and $_ -ne '' }
+        $safelistDomains | Should -Contain 'ims-na1.adobelogin.com'
+        $safelistDomains | Should -Contain 'auth.services.adobe.com'
+        $safelistDomains.Count | Should -BeGreaterOrEqual 5
+    }
+}
+
 Describe 'Hosts File Markers' {
     It 'uses matching start and end markers' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw

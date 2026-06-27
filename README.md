@@ -60,7 +60,7 @@ fls.doubleclick.net
 For persistent executables like CCXProcess that Adobe apps relaunch on startup, the script uses three layers of defense:
 
 1. **Rename** — The executable is renamed to `.disabled` so nothing can find it at the expected path.
-2. **IFEO Redirect** — An Image File Execution Options debugger key is set to `nul`. Even if Adobe restores the original executable (e.g., during an update), Windows intercepts the launch and silently kills it.
+2. **IFEO Redirect** — An Image File Execution Options debugger key is set to a non-existent path (`AdobeTelemetryBlock.invalid`). Even if Adobe restores the original executable (e.g., during an update), Windows intercepts the launch and silently kills it.
 3. **ACL Deny** — If the rename fails due to a file lock, execute permissions are stripped via a deny ACL for Everyone.
 
 For GrowthSDK, a similar approach is used: the directory is replaced with a read-only, system-hidden file with a deny ACL on write/delete, preventing Adobe from recreating the directory structure.
