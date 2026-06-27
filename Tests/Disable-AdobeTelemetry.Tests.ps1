@@ -145,6 +145,18 @@ Describe 'Process List Validation' {
         $script:AdobeProcesses | Should -Contain 'LogTransport2'
         $script:AdobeProcesses | Should -Contain 'AdobeCollabSync'
     }
+
+    It 'includes Substance suite processes' {
+        $script:AdobeProcesses | Should -Contain 'Adobe Substance 3D Painter'
+        $script:AdobeProcesses | Should -Contain 'Adobe Substance 3D Designer'
+        $script:AdobeProcesses | Should -Contain 'Adobe Substance 3D Sampler'
+        $script:AdobeProcesses | Should -Contain 'Adobe Substance 3D Stager'
+        $script:AdobeProcesses | Should -Contain 'Adobe Substance 3D Modeler'
+    }
+
+    It 'includes Dimension process' {
+        $script:AdobeProcesses | Should -Contain 'Adobe Dimension'
+    }
 }
 
 Describe 'Services List Validation' {
@@ -181,6 +193,24 @@ Describe 'Script Configuration' {
     It 'IFEO target is not nul' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Not -Match "-Value\s+'nul'\s+-Type\s+String"
+    }
+
+    It 'sets IFEO redirects for CC helper processes' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'Creative Cloud Helper\.exe'
+        $scriptContent | Should -Match 'AdobeNotificationClient\.exe'
+    }
+
+    It 'includes Substance telemetry registry policies' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'Substance 3D'
+        $scriptContent | Should -Match 'DisableAnalytics'
+        $scriptContent | Should -Match 'enable_analytics'
+    }
+
+    It 'manifest-driven undo is wired up as primary path' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'Invoke-ManifestUndo'
     }
 
     It 'version strings are consistent' {

@@ -47,8 +47,8 @@
 
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.1.0
-    Date    : 2026-06-20
+    Version : 2.2.0
+    Date    : 2026-06-27
 #>
 
 param(
@@ -63,7 +63,17 @@ param(
     [string]$ExportProfile,
     [string]$ImportProfile,
     [switch]$InstallWatchdog,
-    [switch]$RemoveWatchdog
+    [switch]$RemoveWatchdog,
+    [switch]$ConnectionReport,
+    [switch]$WfpTrace,
+    [ValidateRange(1,1440)]
+    [int]$TraceMinutes = 10,
+    [string]$TraceOutput,
+    [switch]$PlumbingTest,
+    [string]$PlumbingApp = 'Premiere',
+    [ValidateRange(1,1440)]
+    [int]$PlumbingMinutes = 10,
+    [switch]$Verbose
 )
 
 # ── Auto-Elevate ─────────────────────────────────────────────────────────────
@@ -83,6 +93,11 @@ if (-not $isAdmin) {
     if ($ImportProfile) { $argList += '-ImportProfile'; $argList += "`"$ImportProfile`"" }
     if ($InstallWatchdog) { $argList += '-InstallWatchdog' }
     if ($RemoveWatchdog)  { $argList += '-RemoveWatchdog' }
+    if ($ConnectionReport) { $argList += '-ConnectionReport' }
+    if ($WfpTrace) { $argList += '-WfpTrace'; $argList += '-TraceMinutes'; $argList += $TraceMinutes }
+    if ($TraceOutput) { $argList += '-TraceOutput'; $argList += "`"$TraceOutput`"" }
+    if ($PlumbingTest) { $argList += '-PlumbingTest'; $argList += '-PlumbingApp'; $argList += "`"$PlumbingApp`""; $argList += '-PlumbingMinutes'; $argList += $PlumbingMinutes }
+    if ($Verbose) { $argList += '-Verbose' }
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
     exit 0
 }
@@ -91,13 +106,26 @@ if (-not $isAdmin) {
 
 $ErrorActionPreference = 'Continue'
 
+$script:DisplayVersion = 'v2.2.0'
+$script:Version = $script:DisplayVersion.TrimStart('v')
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
+$script:LogDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\logs'
+$script:JsonLogFile = Join-Path $script:LogDir ("Disable-AdobeTelemetry-{0}.jsonl" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
 
 # ── Undo Manifest ────────────────────────────────────────────────────────────
 # JSON manifest recording every action so -Undo can be fully deterministic
 $script:ManifestDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry'
 $script:ManifestPath = Join-Path $script:ManifestDir 'undo-manifest.json'
 $script:ManifestActions = @()
+
+function Ensure-AppDataDirectory {
+    if (-not (Test-Path $script:ManifestDir)) {
+        New-Item -Path $script:ManifestDir -ItemType Directory -Force | Out-Null
+    }
+    if (-not (Test-Path $script:LogDir)) {
+        New-Item -Path $script:LogDir -ItemType Directory -Force | Out-Null
+    }
+}
 
 function Add-ManifestAction {
     param(
@@ -117,16 +145,33 @@ function Add-ManifestAction {
 function Save-Manifest {
     if ($DryRun) { return }
     if ($script:ManifestActions.Count -eq 0) { return }
-    if (-not (Test-Path $script:ManifestDir)) {
-        New-Item -Path $script:ManifestDir -ItemType Directory -Force | Out-Null
-    }
+    Ensure-AppDataDirectory
     $manifest = @{
-        Version   = '2.1.0'
-        CreatedAt = (Get-Date -Format 'o')
-        Actions   = $script:ManifestActions
+        Version       = $script:Version
+        SchemaVersion = 2
+        CreatedAt     = (Get-Date -Format 'o')
+        Profile       = $Profile
+        Only          = $Only
+        Skip          = $Skip
+        Actions       = $script:ManifestActions
     }
     $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $script:ManifestPath -Force -Encoding UTF8
     Write-Status "Undo manifest saved to $($script:ManifestPath)" -Type Info
+}
+
+function Get-ManifestDetail {
+    param(
+        [Parameter(Mandatory=$true)]$Details,
+        [Parameter(Mandatory=$true)][string]$Name
+    )
+    if ($Details -is [hashtable]) {
+        return $Details[$Name]
+    }
+    $property = $Details.PSObject.Properties[$Name]
+    if ($property) {
+        return $property.Value
+    }
+    return $null
 }
 
 # ── Phase Resolution ──────────────────────────────────────────────────────────
@@ -174,6 +219,8 @@ $script:Counters = @{
     DomainsBlocked    = 0
     StartupDisabled   = 0
     ExesNeutralized   = 0
+    ConnectionsBefore = -1
+    ConnectionsAfter  = -1
 }
 
 # Adobe background processes to kill
@@ -194,7 +241,27 @@ $AdobeProcesses = @(
     'CRLogTransport'
     'acrotray'
     'AcroTray'
+    'Adobe Acrobat'
+    'Acrobat'
+    'AcroCEF'
+    'RdrCEF'
+    'AdobeARM'
+    'AdobeGCClient'
+    'Adobe Genuine Service'
+    'Adobe Genuine Helper'
+    'Adobe Crash Processor'
+    'AdobeCRDaemon'
     'Adobe CEF Helper'
+    'Creative Cloud'
+    'Creative Cloud Helper'
+    'Adobe Creative Cloud'
+    'AAM Updates Notifier'
+    'Adobe Substance 3D Painter'
+    'Adobe Substance 3D Designer'
+    'Adobe Substance 3D Sampler'
+    'Adobe Substance 3D Stager'
+    'Adobe Substance 3D Modeler'
+    'Adobe Dimension'
     'node'  # Adobe CEF/Node helpers - filtered by path below
 )
 
@@ -206,6 +273,27 @@ $AdditionalPaths = @(
     'Adobe\OOBE\opm.db'
     'Adobe\OOBE\PDApp\CCM\Telemetry'
 )
+
+$AdobeAppExecutables = @{
+    'Photoshop'        = 'Photoshop.exe'
+    'Illustrator'      = 'Illustrator.exe'
+    'Premiere'         = 'Adobe Premiere Pro.exe'
+    'PremierePro'      = 'Adobe Premiere Pro.exe'
+    'AfterEffects'     = 'AfterFX.exe'
+    'InDesign'         = 'InDesign.exe'
+    'Lightroom'        = 'Lightroom.exe'
+    'LightroomClassic' = 'Lightroom.exe'
+    'Audition'         = 'Adobe Audition.exe'
+    'Animate'          = 'Animate.exe'
+    'MediaEncoder'     = 'Adobe Media Encoder.exe'
+    'SubstancePainter' = 'Adobe Substance 3D Painter.exe'
+    'SubstanceDesigner'= 'Adobe Substance 3D Designer.exe'
+    'SubstanceSampler' = 'Adobe Substance 3D Sampler.exe'
+    'SubstanceStager'  = 'Adobe Substance 3D Stager.exe'
+    'Dimension'        = 'Adobe Dimension.exe'
+    'Acrobat'          = 'Acrobat.exe'
+    'Reader'           = 'AcroRd32.exe'
+}
 
 # Services to disable
 $Services = @(
@@ -350,7 +438,18 @@ function Write-Status {
     )
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
     $logLine = "[$timestamp] [$Type] $Message"
+    Ensure-AppDataDirectory
     Add-Content -Path $script:LogFile -Value $logLine -ErrorAction SilentlyContinue
+    $jsonEntry = [ordered]@{
+        timestamp = (Get-Date -Format 'o')
+        level     = $Type
+        message   = $Message
+        profile   = $Profile
+        dryRun    = [bool]$DryRun
+        undo      = [bool]$Undo
+        status    = [bool]$StatusOnly
+    }
+    ($jsonEntry | ConvertTo-Json -Compress) | Add-Content -Path $script:JsonLogFile -Encoding UTF8 -ErrorAction SilentlyContinue
 
     switch ($Type) {
         'Header'  { Write-Host "`n=== $Message ===`n" -ForegroundColor Cyan }
@@ -362,8 +461,135 @@ function Write-Status {
     }
 }
 
+function Write-Rationale {
+    param([string]$Message)
+    if ($Verbose) {
+        Write-Status "Why: $Message" -Type Info
+    }
+}
+
+function Get-RegistryValueKind {
+    param(
+        [string]$Path,
+        [string]$Name
+    )
+    try {
+        $keyPath = $Path -replace '^HKLM:\\', 'HKEY_LOCAL_MACHINE\' -replace '^HKCU:\\', 'HKEY_CURRENT_USER\'
+        $baseName = if ($keyPath -like 'HKEY_LOCAL_MACHINE\*') { 'LocalMachine' } else { 'CurrentUser' }
+        $subKey = $keyPath -replace '^HKEY_LOCAL_MACHINE\\', '' -replace '^HKEY_CURRENT_USER\\', ''
+        $baseKey = [Microsoft.Win32.Registry]::$baseName
+        $key = $baseKey.OpenSubKey($subKey)
+        if ($key) {
+            return $key.GetValueKind($Name).ToString()
+        }
+    } catch { }
+    return $null
+}
+
+function Set-RegistryValueTracked {
+    param(
+        [string]$Phase,
+        [string]$Path,
+        [string]$Name,
+        $Value,
+        [string]$Type = 'DWord'
+    )
+    $previousExists = $false
+    $previousValue = $null
+    $previousType = $null
+    if (Test-Path $Path) {
+        $property = Get-ItemProperty -Path $Path -Name $Name -ErrorAction SilentlyContinue
+        if ($null -ne $property -and $property.PSObject.Properties[$Name]) {
+            $previousExists = $true
+            $previousValue = $property.$Name
+            $previousType = Get-RegistryValueKind -Path $Path -Name $Name
+        }
+    }
+    if (-not (Test-Path $Path)) {
+        New-Item -Path $Path -Force | Out-Null
+    }
+    Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force
+    Add-ManifestAction -Phase $Phase -Action 'SetRegistryValue' -Details @{
+        Path = $Path; Name = $Name; Value = $Value; Type = $Type
+        PreviousExists = $previousExists; PreviousValue = $previousValue; PreviousType = $previousType
+    }
+}
+
+function Restore-RegistryValue {
+    param(
+        [string]$Path,
+        [string]$Name,
+        $PreviousValue,
+        [bool]$PreviousExists,
+        [string]$PreviousType
+    )
+    if ($PreviousExists) {
+        if (-not (Test-Path $Path)) {
+            New-Item -Path $Path -Force | Out-Null
+        }
+        $type = if ($PreviousType) { $PreviousType } else { 'String' }
+        Set-ItemProperty -Path $Path -Name $Name -Value $PreviousValue -Type $type -Force
+        Write-Status "Restored $Path\$Name" -Type Success
+    } elseif (Test-Path $Path) {
+        Remove-ItemProperty -Path $Path -Name $Name -Force -ErrorAction SilentlyContinue
+        Write-Status "Removed $Path\$Name" -Type Success
+    }
+}
+
+function Convert-ServiceStartModeForSc {
+    param([string]$StartMode)
+    switch ($StartMode) {
+        'Auto'     { 'auto' }
+        'Automatic' { 'auto' }
+        'Manual'   { 'demand' }
+        'Disabled' { 'disabled' }
+        default    { 'demand' }
+    }
+}
+
+function Set-ServiceStartMode {
+    param(
+        [string]$Name,
+        [string]$StartMode
+    )
+    $scMode = Convert-ServiceStartModeForSc -StartMode $StartMode
+    & sc.exe config $Name start= $scMode 2>&1 | Out-Null
+}
+
+function Stop-ServiceSilent {
+    param([string]$Name)
+    & sc.exe stop $Name 2>&1 | Out-Null
+}
+
+function Start-ServiceSilent {
+    param([string]$Name)
+    & sc.exe start $Name 2>&1 | Out-Null
+}
+
+function Remove-DenyAclForEveryone {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return }
+    try {
+        $acl = Get-Acl $Path
+        $changed = $false
+        foreach ($rule in @($acl.Access)) {
+            if ($rule.AccessControlType -eq 'Deny' -and $rule.IdentityReference.Value -eq 'Everyone') {
+                $acl.RemoveAccessRule($rule) | Out-Null
+                $changed = $true
+            }
+        }
+        if ($changed) {
+            Set-Acl -Path $Path -AclObject $acl
+            Write-Status "Removed deny ACL from $Path" -Type Success
+        }
+    } catch {
+        Write-Status "Failed to remove deny ACL from $Path" -Type Warning
+    }
+}
+
 function Stop-AdobeProcesses {
     Write-Status 'Terminating Adobe background processes' -Type Header
+    Write-Rationale 'Adobe CC spawns persistent background processes for telemetry, marketing, and software verification that continue running even after all Adobe apps are closed.'
 
     foreach ($procName in $AdobeProcesses) {
         $procs = Get-Process -Name $procName -ErrorAction SilentlyContinue |
@@ -390,6 +616,7 @@ function Stop-AdobeProcesses {
 
 function Remove-GrowthSDK {
     Write-Status 'Neutralizing GrowthSDK across all profiles' -Type Header
+    Write-Rationale 'GrowthSDK is Adobe''s in-app marketing framework that serves upsell prompts and phones home with usage data. Deleting the directory is insufficient; Adobe recreates it on every launch. A read-only ACL-denied blocker file prevents regeneration.'
 
     # Get all user profile directories
     $profileRoot = Split-Path $env:USERPROFILE
@@ -455,6 +682,9 @@ function Remove-GrowthSDK {
                 $acl.AddAccessRule($denyRule)
                 Set-Acl -Path $growthDir -AclObject $acl
                 Write-Status "Pre-blocked GrowthSDK for $($userProf.Name)" -Type Success
+                Add-ManifestAction -Phase 'GrowthSDK' -Action 'BlockDirectory' -Details @{
+                    Path = $growthDir; Profile = $userProf.Name
+                }
                 $script:Counters.GrowthSDKBlocked++
             }
         }
@@ -476,6 +706,7 @@ function Remove-GrowthSDK {
 
 function Disable-AdobeScheduledTasks {
     Write-Status 'Disabling Adobe scheduled tasks' -Type Header
+    Write-Rationale 'Adobe installs scheduled tasks (GCInvoker, Genuine Monitor, updaters) that re-enable telemetry services and background processes on a schedule, even after manual disabling.'
 
     # Dynamic discovery: find all Adobe-related tasks by name or path
     $allTasks = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
@@ -501,6 +732,9 @@ function Disable-AdobeScheduledTasks {
         try {
             $task | Disable-ScheduledTask -ErrorAction Stop | Out-Null
             Write-Status "Disabled task: $($task.TaskName)" -Type Success
+            Add-ManifestAction -Phase 'Tasks' -Action 'DisableScheduledTask' -Details @{
+                TaskName = $task.TaskName; TaskPath = $task.TaskPath; PreviousState = $task.State
+            }
             $script:Counters.TasksDisabled++
         } catch {
             Write-Status "Failed to disable task: $($task.TaskName) - $($_.Exception.Message)" -Type Error
@@ -510,6 +744,7 @@ function Disable-AdobeScheduledTasks {
 
 function Disable-AdobeServices {
     Write-Status 'Disabling Adobe telemetry services' -Type Header
+    Write-Rationale 'Adobe background services (AGSService, AGMService, AdobeARMservice, AdobeUpdateService) maintain telemetry pipelines and genuine-software checks. Disabling prevents automatic restart after process termination.'
 
     foreach ($svcName in $Services) {
         $svc = Get-Service -Name $svcName -ErrorAction SilentlyContinue
@@ -525,10 +760,13 @@ function Disable-AdobeServices {
                 continue
             }
             if ($svc.Status -eq 'Running') {
-                Stop-Service -Name $svcName -Force -ErrorAction SilentlyContinue
+                Stop-ServiceSilent -Name $svcName
             }
-            Set-Service -Name $svcName -StartupType Disabled -ErrorAction SilentlyContinue
+            Set-ServiceStartMode -Name $svcName -StartMode 'Disabled'
             Write-Status "Disabled service: $svcName ($($svc.DisplayName))" -Type Success
+            Add-ManifestAction -Phase 'Services' -Action 'DisableService' -Details @{
+                Name = $svcName; PreviousStartMode = $startType; PreviousStatus = $svc.Status
+            }
             $script:Counters.ServicesDisabled++
         } else {
             Write-Status "Service not found: $svcName" -Type Warning
@@ -538,6 +776,7 @@ function Disable-AdobeServices {
 
 function Set-AdobeRegistryPolicies {
     Write-Status 'Setting registry policies to disable telemetry' -Type Header
+    Write-Rationale 'Enterprise registry policies under HKLM:\SOFTWARE\Policies\Adobe are the official mechanism for fleet-wide Adobe telemetry suppression. Adobe applications read these keys at startup and respect them.'
 
     $regPaths = @(
         @{
@@ -556,6 +795,14 @@ function Set-AdobeRegistryPolicies {
             }
         },
         @{
+            Path  = 'HKLM:\SOFTWARE\Policies\Adobe\CreativeCloud'
+            Values = @{
+                'DisableLaunchOnLogin'  = 1
+                'DisableNotifications'  = 1
+                'DisableAutoUpdates'    = 1
+            }
+        },
+        @{
             Path  = 'HKLM:\SOFTWARE\Adobe\Adobe Genuine Service'
             Values = @{
                 'AgsDisabled'           = 1
@@ -564,7 +811,33 @@ function Set-AdobeRegistryPolicies {
         @{
             Path  = 'HKCU:\SOFTWARE\Adobe\CommonFiles\UsageCC'
             Values = @{
-                'AUSUF'                 = 0     # Disable usage framework
+                'AUSUF'                 = 0
+            }
+        },
+        @{
+            Path  = 'HKLM:\SOFTWARE\Policies\Adobe\Substance 3D'
+            Values = @{
+                'DisableAnalytics'      = 1
+                'DisableTelemetry'      = 1
+                'DisableAutoUpdate'     = 1
+            }
+        },
+        @{
+            Path  = 'HKCU:\SOFTWARE\Adobe\Substance 3D Painter\Settings'
+            Values = @{
+                'enable_analytics'      = 0
+            }
+        },
+        @{
+            Path  = 'HKCU:\SOFTWARE\Adobe\Substance 3D Designer\Settings'
+            Values = @{
+                'enable_analytics'      = 0
+            }
+        },
+        @{
+            Path  = 'HKCU:\SOFTWARE\Adobe\Substance 3D Sampler\Settings'
+            Values = @{
+                'enable_analytics'      = 0
             }
         }
     )
@@ -585,10 +858,7 @@ function Set-AdobeRegistryPolicies {
                 $script:Counters.RegistryKeysSet++
                 continue
             }
-            if (-not (Test-Path $entry.Path)) {
-                New-Item -Path $entry.Path -Force | Out-Null
-            }
-            Set-ItemProperty -Path $entry.Path -Name $name -Value $val -Type DWord -Force
+            Set-RegistryValueTracked -Phase 'Registry' -Path $entry.Path -Name $name -Value $val -Type 'DWord'
             Write-Status "Set $($entry.Path)\$name = $val" -Type Success
             $script:Counters.RegistryKeysSet++
         }
@@ -597,6 +867,7 @@ function Set-AdobeRegistryPolicies {
 
 function Block-AdobeFirewall {
     Write-Status 'Creating firewall rules to block Adobe telemetry' -Type Header
+    Write-Rationale 'DNS-level blocking (hosts file) can be bypassed by hardcoded IPs or DNS-over-HTTPS. Firewall rules block by resolved IP (TCP+UDP) and by program path as a defense-in-depth layer. Persistent null routes add a third layer that survives firewall resets.'
 
     # Idempotent: remove existing rules from a previous run to avoid duplicates
     $existing = Get-NetFirewallRule -DisplayName 'Block Adobe Telemetry*' -ErrorAction SilentlyContinue
@@ -661,6 +932,12 @@ function Block-AdobeFirewall {
                 -Enabled True `
                 -Description 'Blocks outbound UDP/QUIC to Adobe telemetry/analytics servers.' |
                 Out-Null
+            Add-ManifestAction -Phase 'Firewall' -Action 'AddFirewallRule' -Details @{
+                DisplayName = 'Block Adobe Telemetry - Outbound IPs (TCP)'
+            }
+            Add-ManifestAction -Phase 'Firewall' -Action 'AddFirewallRule' -Details @{
+                DisplayName = 'Block Adobe Telemetry - Outbound IPs (UDP)'
+            }
             Write-Status "Blocked $($resolvedIPs.Count) telemetry IPs via firewall (TCP+UDP)" -Type Success
         }
         $script:Counters.FirewallIPsBlocked = $resolvedIPs.Count
@@ -680,7 +957,13 @@ function Block-AdobeFirewall {
         "${env:ProgramFiles(x86)}\Common Files\Adobe\CoreSyncExtension\CoreSync.exe"
     )
     # Dynamically discover additional telemetry executables under Adobe install paths
-    $telemetryExeNames = @('LogTransport2.exe', 'CRWindowsClientService.exe', 'CRLogTransport.exe', 'AdobeCollabSync.exe')
+    $telemetryExeNames = @(
+        'LogTransport2.exe', 'CRWindowsClientService.exe', 'CRLogTransport.exe', 'AdobeCollabSync.exe',
+        'AdobeGCClient.exe', 'Adobe Crash Processor.exe', 'AcroCEF.exe', 'RdrCEF.exe', 'Acrobat.exe',
+        'AcroRd32.exe', 'Adobe Dimension.exe', 'Adobe Substance 3D Painter.exe',
+        'Adobe Substance 3D Designer.exe', 'Adobe Substance 3D Sampler.exe', 'Adobe Substance 3D Stager.exe',
+        'Creative Cloud.exe', 'Adobe CEF Helper.exe', 'AdobeNotificationClient.exe'
+    )
     foreach ($installPath in $script:AdobeInstallPaths) {
         if (-not (Test-Path $installPath)) { continue }
         foreach ($exeName in $telemetryExeNames) {
@@ -703,6 +986,9 @@ function Block-AdobeFirewall {
                     -Enabled True `
                     -Description "Blocks $exeName from reaching Adobe analytics servers." |
                     Out-Null
+                Add-ManifestAction -Phase 'Firewall' -Action 'AddFirewallRule' -Details @{
+                    DisplayName = "Block Adobe Telemetry - $exeName"
+                }
             }
             $script:Counters.FirewallRulesAdded++
         }
@@ -724,6 +1010,9 @@ function Block-AdobeFirewall {
                 $routesAdded++
             } else {
                 & route -p add $ip mask 255.255.255.255 0.0.0.0 2>&1 | Out-Null
+                Add-ManifestAction -Phase 'Firewall' -Action 'AddRoute' -Details @{
+                    IPAddress = $ip
+                }
                 $routesAdded++
             }
         }
@@ -739,6 +1028,7 @@ function Block-AdobeFirewall {
 
 function Block-AdobeHostsFile {
     Write-Status 'Blocking Adobe telemetry via hosts file' -Type Header
+    Write-Rationale 'Hosts file sinkholing (0.0.0.0) is the simplest blocking layer. It works at the OS resolver level before any network stack is involved, but can be overridden by Adobe WAM (Web Account Manager) which injects its own hosts entries. WAM entries are detected and removed first.'
 
     $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
     $marker    = '# --- Adobe Telemetry Block (Disable-AdobeTelemetry.ps1) ---'
@@ -763,6 +1053,9 @@ function Block-AdobeHostsFile {
 
     Copy-Item -Path $hostsPath -Destination $backupPath -Force -ErrorAction SilentlyContinue
     Write-Status "Hosts file backed up to $backupPath" -Type Info
+    Add-ManifestAction -Phase 'Hosts' -Action 'HostsBackup' -Details @{
+        Path = $hostsPath; BackupPath = $backupPath
+    }
 
     # Remove Adobe WAM injected entries if present
     $wamMarker = '# Adobe Creative Cloud WAM - Start'
@@ -772,6 +1065,9 @@ function Block-AdobeHostsFile {
         $hostsContent = $hostsContent -replace $wamPattern, ''
         Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding ASCII
         Write-Status 'Removed Adobe WAM hosts injection' -Type Success
+        Add-ManifestAction -Phase 'Hosts' -Action 'RemoveHostsBlock' -Details @{
+            Path = $hostsPath; Marker = $wamMarker; EndMarker = $wamEndMarker
+        }
     }
 
     # Remove previous block if it exists (idempotent refresh)
@@ -791,6 +1087,9 @@ function Block-AdobeHostsFile {
     $newBlock = "`r`n" + ($blockEntries -join "`r`n") + "`r`n"
     Add-Content -Path $hostsPath -Value $newBlock -Encoding ASCII
     Write-Status "Added $($TelemetryDomains.Count) domains to hosts file" -Type Success
+    Add-ManifestAction -Phase 'Hosts' -Action 'HostsBlock' -Details @{
+        Path = $hostsPath; Marker = $marker; EndMarker = $endMarker; BackupPath = $backupPath
+    }
     $script:Counters.DomainsBlocked = $TelemetryDomains.Count
 
     # Flush DNS cache so changes take effect immediately
@@ -800,6 +1099,7 @@ function Block-AdobeHostsFile {
 
 function Disable-CCXProcess {
     Write-Status 'Permanently neutralizing CCXProcess' -Type Header
+    Write-Rationale 'CCXProcess.exe is the Creative Cloud Experience host that serves in-app marketing and notifications. It persists after closing all Adobe apps and relaunches via scheduled tasks. The triple-layer approach (rename + IFEO + ACL) ensures it cannot be restored silently by Adobe updaters.'
 
     $ccxPaths = @(
         "$env:ProgramFiles\Adobe\Adobe Creative Cloud Experience"
@@ -827,6 +1127,9 @@ function Disable-CCXProcess {
                 try {
                     Rename-Item -Path $ccxExe -NewName 'CCXProcess.exe.disabled' -Force -ErrorAction Stop
                     Write-Status "Renamed CCXProcess.exe -> CCXProcess.exe.disabled in $ccxDir" -Type Success
+                    Add-ManifestAction -Phase 'CCXProcess' -Action 'RenameFile' -Details @{
+                        OriginalPath = $ccxExe; RenamedPath = $ccxDisabled
+                    }
                     $script:Counters.ExesNeutralized++
                 } catch {
                     Write-Status "Rename failed (file locked?) - applying ACL deny instead" -Type Warning
@@ -839,6 +1142,9 @@ function Disable-CCXProcess {
                         $acl.AddAccessRule($denyRule)
                         Set-Acl -Path $ccxExe -AclObject $acl
                         Write-Status "Denied execute permissions on CCXProcess.exe in $ccxDir" -Type Success
+                        Add-ManifestAction -Phase 'CCXProcess' -Action 'SetAclDeny' -Details @{
+                            Path = $ccxExe
+                        }
                         $script:Counters.ExesNeutralized++
                     } catch {
                         Write-Status "Could not modify CCXProcess.exe - try after closing all Adobe apps" -Type Error
@@ -857,6 +1163,9 @@ function Disable-CCXProcess {
                 try {
                     Rename-Item -Path $nodeExe -NewName 'node.exe.disabled' -Force -ErrorAction Stop
                     Write-Status "Renamed CCX node.exe -> node.exe.disabled" -Type Success
+                    Add-ManifestAction -Phase 'CCXProcess' -Action 'RenameFile' -Details @{
+                        OriginalPath = $nodeExe; RenamedPath = (Join-Path (Split-Path $nodeExe) 'node.exe.disabled')
+                    }
                     $script:Counters.ExesNeutralized++
                 } catch {
                     Write-Status "CCX node.exe rename failed (may be locked)" -Type Warning
@@ -886,7 +1195,7 @@ function Disable-CCXProcess {
             New-Item -Path $ifeoPath -Force | Out-Null
         }
         $ifeoTarget = Join-Path $env:SystemRoot 'System32\AdobeTelemetryBlock.invalid'
-        Set-ItemProperty -Path $ifeoPath -Name 'Debugger' -Value $ifeoTarget -Type String -Force
+        Set-RegistryValueTracked -Phase 'CCXProcess' -Path $ifeoPath -Name 'Debugger' -Value $ifeoTarget -Type 'String'
         Write-Status 'Set IFEO debugger redirect for CCXProcess.exe (failsafe)' -Type Success
     }
 
@@ -909,14 +1218,34 @@ function Disable-CCXProcess {
                     -Description 'Prevents CCXProcess from phoning home even if restored.' |
                     Out-Null
                 Write-Status "Firewall rule added for CCXProcess in $ccxDir" -Type Success
+                Add-ManifestAction -Phase 'CCXProcess' -Action 'AddFirewallRule' -Details @{
+                    DisplayName = "Block Adobe Telemetry - CCXProcess ($ccxDir)"
+                }
             }
             $script:Counters.FirewallRulesAdded++
+        }
+    }
+
+    # IFEO redirect for Creative Cloud Helper (triggers CC app auto-popup after updates)
+    $ccHelperExes = @('Creative Cloud Helper.exe', 'AdobeNotificationClient.exe')
+    foreach ($helperExe in $ccHelperExes) {
+        $helperIfeo = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$helperExe"
+        if ($DryRun) {
+            Write-Status "Would set IFEO debugger redirect for $helperExe" -Type DryRun
+        } else {
+            if (-not (Test-Path $helperIfeo)) {
+                New-Item -Path $helperIfeo -Force | Out-Null
+            }
+            $ifeoTarget = Join-Path $env:SystemRoot 'System32\AdobeTelemetryBlock.invalid'
+            Set-RegistryValueTracked -Phase 'CCXProcess' -Path $helperIfeo -Name 'Debugger' -Value $ifeoTarget -Type 'String'
+            Write-Status "Set IFEO debugger redirect for $helperExe" -Type Success
         }
     }
 }
 
 function Disable-AdobeIPCBroker {
     Write-Status 'Restricting AdobeIPCBroker (firewall only - required for app launch)' -Type Header
+    Write-Rationale 'AdobeIPCBroker.exe is required for Premiere Pro and Photoshop to launch (local inter-process communication). Renaming or blocking execution breaks Adobe apps. Instead, outbound firewall rules prevent it from phoning home while preserving local IPC functionality.'
 
     # NOTE: AdobeIPCBroker.exe is required for Premiere/Photoshop to start.
     # Renaming or blocking execution breaks Adobe apps entirely.
@@ -986,6 +1315,9 @@ function Disable-AdobeIPCBroker {
                 -Description 'Blocks AdobeIPCBroker outbound telemetry while allowing local IPC.' |
                 Out-Null
             Write-Status "Firewall rule added for AdobeIPCBroker in $ipcDir" -Type Success
+            Add-ManifestAction -Phase 'IPCBroker' -Action 'AddFirewallRule' -Details @{
+                DisplayName = "Block Adobe Telemetry - AdobeIPCBroker ($ipcDir)"
+            }
         }
         $script:Counters.FirewallRulesAdded++
     }
@@ -1005,6 +1337,7 @@ function Disable-AdobeIPCBroker {
 
 function Disable-AdobeStartupEntries {
     Write-Status 'Disabling Adobe startup/run entries' -Type Header
+    Write-Rationale 'Adobe registers auto-start entries in HKLM/HKCU Run keys and startup folders. These relaunch CC Desktop, AGS, and update services on login, undoing process kills and service disables. Values are prefixed with REM rather than deleted so -Undo can restore the exact original value.'
 
     $runPaths = @(
         'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
@@ -1025,6 +1358,9 @@ function Disable-AdobeStartupEntries {
                     } else {
                         Set-ItemProperty -Path $runPath -Name $name -Value "REM $val" -Force
                         Write-Status "Disabled startup entry: $name" -Type Success
+                        Add-ManifestAction -Phase 'Startup' -Action 'DisableStartupValue' -Details @{
+                            Path = $runPath; Name = $name; PreviousValue = $val
+                        }
                     }
                     $script:Counters.StartupDisabled++
                 } else {
@@ -1033,10 +1369,43 @@ function Disable-AdobeStartupEntries {
             }
         }
     }
+
+    $startupFolders = @()
+    $commonStartup = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Startup'
+    if (Test-Path $commonStartup) { $startupFolders += $commonStartup }
+    $profileRoot = Split-Path $env:USERPROFILE
+    $userProfiles = Get-ChildItem $profileRoot -Directory -ErrorAction SilentlyContinue
+    foreach ($userProf in $userProfiles) {
+        $folder = Join-Path $userProf.FullName 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
+        if (Test-Path $folder) { $startupFolders += $folder }
+    }
+
+    foreach ($folder in ($startupFolders | Sort-Object -Unique)) {
+        $shortcuts = Get-ChildItem -Path $folder -Filter '*.lnk' -ErrorAction SilentlyContinue |
+            Where-Object { $_.BaseName -match 'Adobe|Creative Cloud|CCX|CCLibrary|CoreSync' }
+        foreach ($shortcut in $shortcuts) {
+            $disabledPath = "$($shortcut.FullName).disabled"
+            if (Test-Path $disabledPath) {
+                Write-Status "Startup shortcut already disabled: $($shortcut.Name)" -Type Warning
+                continue
+            }
+            if ($DryRun) {
+                Write-Status "Would disable startup shortcut: $($shortcut.FullName)" -Type DryRun
+            } else {
+                Rename-Item -Path $shortcut.FullName -NewName "$($shortcut.Name).disabled" -Force
+                Write-Status "Disabled startup shortcut: $($shortcut.Name)" -Type Success
+                Add-ManifestAction -Phase 'Startup' -Action 'RenameStartupShortcut' -Details @{
+                    OriginalPath = $shortcut.FullName; RenamedPath = $disabledPath
+                }
+            }
+            $script:Counters.StartupDisabled++
+        }
+    }
 }
 
 function Disable-AcrobatTelemetry {
     Write-Status 'Disabling Adobe Acrobat/Reader telemetry via registry' -Type Header
+    Write-Rationale 'Acrobat and Reader have their own telemetry and in-product messaging system separate from CC. FeatureLockDown registry policies are the documented enterprise mechanism. Both 64-bit and Wow6432Node paths are set to cover Acrobat Pro (64-bit) and Reader (32-bit) installations.'
 
     # Build policies for both Acrobat Pro and Acrobat Reader
     $productPaths = @(
@@ -1129,11 +1498,8 @@ function Disable-AcrobatTelemetry {
                 $script:Counters.RegistryKeysSet++
                 continue
             }
-            if (-not (Test-Path $entry.Path)) {
-                New-Item -Path $entry.Path -Force | Out-Null
-            }
             $regType = if ($entry.Type) { $entry.Type } else { 'DWord' }
-            Set-ItemProperty -Path $entry.Path -Name $name -Value $val -Type $regType -Force
+            Set-RegistryValueTracked -Phase 'Acrobat' -Path $entry.Path -Name $name -Value $val -Type $regType
             Write-Status "Set $($entry.Path)\$name = $val" -Type Success
             $script:Counters.RegistryKeysSet++
         }
@@ -1141,6 +1507,159 @@ function Disable-AcrobatTelemetry {
 }
 
 # ── Undo Function ────────────────────────────────────────────────────────────
+
+function Remove-HostsBlockByMarker {
+    param(
+        [string]$Path,
+        [string]$Marker,
+        [string]$EndMarker
+    )
+    if (-not (Test-Path $Path)) { return }
+    $content = Get-Content $Path -Raw -ErrorAction SilentlyContinue
+    if ($content -and $content -match [regex]::Escape($Marker)) {
+        $pattern = "(?s)\r?\n?$([regex]::Escape($Marker)).*?$([regex]::Escape($EndMarker))\r?\n?"
+        $content = $content -replace $pattern, ''
+        Set-Content -Path $Path -Value $content.TrimEnd() -Force -Encoding ASCII
+        Write-Status "Removed hosts block: $Marker" -Type Success
+    }
+}
+
+function Invoke-ManifestUndo {
+    if (-not (Test-Path $script:ManifestPath)) {
+        Write-Status 'No undo manifest found; using legacy broad cleanup' -Type Warning
+        return $false
+    }
+
+    try {
+        $manifest = Get-Content $script:ManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        Write-Status "Could not read undo manifest: $($_.Exception.Message)" -Type Warning
+        return $false
+    }
+
+    if (-not $manifest.SchemaVersion -or [int]$manifest.SchemaVersion -lt 2) {
+        Write-Status 'Undo manifest is from an older partial schema; using legacy broad cleanup' -Type Warning
+        return $false
+    }
+
+    $actions = @($manifest.Actions)
+    if ($actions.Count -eq 0) {
+        Write-Status 'Undo manifest has no actions' -Type Warning
+        return $true
+    }
+
+    Write-Status "Replaying $($actions.Count) manifest action(s) in reverse" -Type Header
+    for ($idx = $actions.Count - 1; $idx -ge 0; $idx--) {
+        $entry = $actions[$idx]
+        $details = $entry.Details
+        try {
+            switch ($entry.Action) {
+                'SetRegistryValue' {
+                    Restore-RegistryValue `
+                        -Path (Get-ManifestDetail $details 'Path') `
+                        -Name (Get-ManifestDetail $details 'Name') `
+                        -PreviousValue (Get-ManifestDetail $details 'PreviousValue') `
+                        -PreviousExists ([bool](Get-ManifestDetail $details 'PreviousExists')) `
+                        -PreviousType (Get-ManifestDetail $details 'PreviousType')
+                }
+                'DisableService' {
+                    $name = Get-ManifestDetail $details 'Name'
+                    $previousStartMode = Get-ManifestDetail $details 'PreviousStartMode'
+                    $previousStatus = Get-ManifestDetail $details 'PreviousStatus'
+                    if ($name) {
+                        Set-ServiceStartMode -Name $name -StartMode $previousStartMode
+                        if ($previousStatus -eq 'Running') {
+                            Start-ServiceSilent -Name $name
+                        }
+                        Write-Status "Restored service state: $name ($previousStartMode)" -Type Success
+                    }
+                }
+                'DisableScheduledTask' {
+                    $taskName = Get-ManifestDetail $details 'TaskName'
+                    $taskPath = Get-ManifestDetail $details 'TaskPath'
+                    $previousState = Get-ManifestDetail $details 'PreviousState'
+                    if ($taskName -and $previousState -ne 'Disabled') {
+                        $task = if ($taskPath) {
+                            Get-ScheduledTask -TaskName $taskName -TaskPath $taskPath -ErrorAction SilentlyContinue
+                        } else {
+                            Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+                        }
+                        if ($task) {
+                            $task | Enable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null
+                            Write-Status "Restored scheduled task: $taskName" -Type Success
+                        }
+                    }
+                }
+                'AddFirewallRule' {
+                    $displayName = Get-ManifestDetail $details 'DisplayName'
+                    if ($displayName) {
+                        Get-NetFirewallRule -DisplayName $displayName -ErrorAction SilentlyContinue |
+                            Remove-NetFirewallRule -ErrorAction SilentlyContinue
+                        Write-Status "Removed firewall rule: $displayName" -Type Success
+                    }
+                }
+                'AddRoute' {
+                    $ip = Get-ManifestDetail $details 'IPAddress'
+                    if ($ip) {
+                        & route delete $ip 2>&1 | Out-Null
+                        Write-Status "Removed persistent route: $ip" -Type Success
+                    }
+                }
+                'HostsBlock' {
+                    Remove-HostsBlockByMarker `
+                        -Path (Get-ManifestDetail $details 'Path') `
+                        -Marker (Get-ManifestDetail $details 'Marker') `
+                        -EndMarker (Get-ManifestDetail $details 'EndMarker')
+                    & ipconfig /flushdns 2>&1 | Out-Null
+                }
+                'RenameFile' {
+                    $originalPath = Get-ManifestDetail $details 'OriginalPath'
+                    $renamedPath = Get-ManifestDetail $details 'RenamedPath'
+                    if ($renamedPath -and (Test-Path $renamedPath) -and $originalPath -and -not (Test-Path $originalPath)) {
+                        Rename-Item -Path $renamedPath -NewName (Split-Path $originalPath -Leaf) -Force
+                        Write-Status "Restored file: $originalPath" -Type Success
+                    }
+                }
+                'RenameStartupShortcut' {
+                    $originalPath = Get-ManifestDetail $details 'OriginalPath'
+                    $renamedPath = Get-ManifestDetail $details 'RenamedPath'
+                    if ($renamedPath -and (Test-Path $renamedPath) -and $originalPath -and -not (Test-Path $originalPath)) {
+                        Rename-Item -Path $renamedPath -NewName (Split-Path $originalPath -Leaf) -Force
+                        Write-Status "Restored startup shortcut: $originalPath" -Type Success
+                    }
+                }
+                'SetAclDeny' {
+                    Remove-DenyAclForEveryone -Path (Get-ManifestDetail $details 'Path')
+                }
+                'BlockDirectory' {
+                    $path = Get-ManifestDetail $details 'Path'
+                    if ($path -and (Test-Path $path -PathType Leaf)) {
+                        Remove-DenyAclForEveryone -Path $path
+                        Set-ItemProperty -Path $path -Name Attributes -Value 'Normal' -ErrorAction SilentlyContinue
+                        Remove-Item -Path $path -Force -ErrorAction SilentlyContinue
+                        Write-Status "Removed blocker file: $path" -Type Success
+                    }
+                }
+                'DisableStartupValue' {
+                    $path = Get-ManifestDetail $details 'Path'
+                    $name = Get-ManifestDetail $details 'Name'
+                    $previousValue = Get-ManifestDetail $details 'PreviousValue'
+                    if ($path -and $name -and (Test-Path $path)) {
+                        Set-ItemProperty -Path $path -Name $name -Value $previousValue -Force
+                        Write-Status "Restored startup value: $path\$name" -Type Success
+                    }
+                }
+                default {
+                    Write-Status "Skipped manifest action type: $($entry.Action)" -Type Warning
+                }
+            }
+        } catch {
+            Write-Status "Manifest undo failed for $($entry.Action): $($_.Exception.Message)" -Type Error
+        }
+    }
+
+    return $true
+}
 
 function Invoke-Undo {
     Write-Status 'UNDO - Reversing all telemetry blocks' -Type Header
@@ -1241,12 +1760,15 @@ function Invoke-Undo {
 
     # 5. Remove IFEO debugger entries for CCXProcess.exe
     Write-Status 'Removing IFEO debugger redirects' -Type Header
-    $ifeoPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\CCXProcess.exe'
-    if (Test-Path $ifeoPath) {
-        Remove-Item -Path $ifeoPath -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Status 'Removed IFEO redirect for CCXProcess.exe' -Type Success
-    } else {
-        Write-Status 'No IFEO redirect found for CCXProcess.exe' -Type Warning
+    $ifeoTargets = @('CCXProcess.exe', 'Creative Cloud Helper.exe', 'AdobeNotificationClient.exe')
+    foreach ($ifeoExe in $ifeoTargets) {
+        $ifeoPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$ifeoExe"
+        if (Test-Path $ifeoPath) {
+            Remove-Item -Path $ifeoPath -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Status "Removed IFEO redirect for $ifeoExe" -Type Success
+        } else {
+            Write-Status "No IFEO redirect found for $ifeoExe" -Type Warning
+        }
     }
 
     # 6. Restore CCXProcess.exe.disabled back to CCXProcess.exe
@@ -1333,6 +1855,7 @@ function Invoke-Undo {
         'HKLM:\SOFTWARE\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown'
         'HKLM:\SOFTWARE\Wow6432Node\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown'
         'HKLM:\SOFTWARE\Wow6432Node\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown'
+        'HKLM:\SOFTWARE\Policies\Adobe\Substance 3D'
     )
     foreach ($regPath in $regPathsToRemove) {
         if (Test-Path $regPath) {
@@ -1345,6 +1868,9 @@ function Invoke-Undo {
         @{ Path = 'HKLM:\SOFTWARE\Adobe\Adobe Genuine Service'; Name = 'AgsDisabled' },
         @{ Path = 'HKCU:\SOFTWARE\Adobe\CommonFiles\UsageCC'; Name = 'AUSUF' },
         @{ Path = 'HKCU:\SOFTWARE\Adobe\Adobe Acrobat\DC\AVAlert\cCheckbox'; Name = 'iAcro498' },
+        @{ Path = 'HKCU:\SOFTWARE\Adobe\Substance 3D Painter\Settings'; Name = 'enable_analytics' },
+        @{ Path = 'HKCU:\SOFTWARE\Adobe\Substance 3D Designer\Settings'; Name = 'enable_analytics' },
+        @{ Path = 'HKCU:\SOFTWARE\Adobe\Substance 3D Sampler\Settings'; Name = 'enable_analytics' },
         @{ Path = 'HKCU:\SOFTWARE\Adobe\CommonFiles\CRLog'; Name = 'Never Ask' },
         @{ Path = 'HKCU:\SOFTWARE\Adobe\Adobe Acrobat\DC\Workflows'; Name = 'bNeedSynchronizer' }
     )
@@ -1446,6 +1972,12 @@ function Show-Status {
     $fwColor = if ($count -gt 0) { 'Green' } else { 'Yellow' }
     Write-Host "    Adobe telemetry block rules: $count" -ForegroundColor $fwColor
 
+    Write-Host ''
+    Write-Host '  --- Live Connections ---' -ForegroundColor Cyan
+    $connections = @(Get-AdobeTelemetryConnections)
+    $connectionColor = if ($connections.Count -eq 0) { 'Green' } else { 'Yellow' }
+    Write-Host "    Adobe-owned outbound TCP connections: $($connections.Count)" -ForegroundColor $connectionColor
+
     # Hosts File
     Write-Host ''
     Write-Host '  --- Hosts File ---' -ForegroundColor Cyan
@@ -1461,16 +1993,19 @@ function Show-Status {
     # IFEO
     Write-Host ''
     Write-Host '  --- IFEO Redirects ---' -ForegroundColor Cyan
-    $ifeoPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\CCXProcess.exe'
-    if (Test-Path $ifeoPath) {
-        $debugger = (Get-ItemProperty -Path $ifeoPath -Name 'Debugger' -ErrorAction SilentlyContinue).Debugger
-        if ($debugger) {
-            Write-Host "    CCXProcess.exe IFEO: Active (Debugger=$debugger)" -ForegroundColor Green
+    $ifeoCheckExes = @('CCXProcess.exe', 'Creative Cloud Helper.exe', 'AdobeNotificationClient.exe')
+    foreach ($ifeoExe in $ifeoCheckExes) {
+        $ifeoPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$ifeoExe"
+        if (Test-Path $ifeoPath) {
+            $debugger = (Get-ItemProperty -Path $ifeoPath -Name 'Debugger' -ErrorAction SilentlyContinue).Debugger
+            if ($debugger) {
+                Write-Host "    $ifeoExe IFEO: Active (Debugger=$debugger)" -ForegroundColor Green
+            } else {
+                Write-Host "    $ifeoExe IFEO: Key exists but no Debugger value" -ForegroundColor Yellow
+            }
         } else {
-            Write-Host '    CCXProcess.exe IFEO: Key exists but no Debugger value' -ForegroundColor Yellow
+            Write-Host "    $ifeoExe IFEO: Not set" -ForegroundColor Yellow
         }
-    } else {
-        Write-Host '    CCXProcess.exe IFEO: Not set' -ForegroundColor Yellow
     }
 
     # Registry Policies
@@ -1488,7 +2023,10 @@ function Show-Status {
         @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cServices'; Name = 'bToggleAdobeSign'; Expected = 1 },
         @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cIPM'; Name = 'bShowMsgAtLaunch'; Expected = 0 },
         @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown'; Name = 'bUsageMeasurement'; Expected = 0 },
-        @{ Path = 'HKCU:\SOFTWARE\Adobe\CommonFiles\CRLog'; Name = 'Never Ask'; Expected = '1' }
+        @{ Path = 'HKCU:\SOFTWARE\Adobe\CommonFiles\CRLog'; Name = 'Never Ask'; Expected = '1' },
+        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Substance 3D'; Name = 'DisableAnalytics'; Expected = 1 },
+        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Substance 3D'; Name = 'DisableTelemetry'; Expected = 1 },
+        @{ Path = 'HKCU:\SOFTWARE\Adobe\Substance 3D Painter\Settings'; Name = 'enable_analytics'; Expected = 0 }
     )
     foreach ($check in $regChecks) {
         if (Test-Path $check.Path) {
@@ -1574,31 +2112,75 @@ function Show-Summary {
         Write-Host "    $($item.Label): $($item.Count)" -ForegroundColor $color
     }
 
+    if ($c.ConnectionsBefore -ge 0 -and $c.ConnectionsAfter -ge 0) {
+        $connectionColor = if ($c.ConnectionsAfter -lt $c.ConnectionsBefore) { 'Green' } elseif ($c.ConnectionsAfter -eq 0) { 'Green' } else { 'Yellow' }
+        Write-Host "    Live Adobe outbound connections: $($c.ConnectionsBefore) -> $($c.ConnectionsAfter)" -ForegroundColor $connectionColor
+    }
+
     Write-Host ''
 }
 
 # ── Launcher Mode ──────────────────────────────────────────────────────────────
 
-function Invoke-CleanLauncher {
-    param([string]$AppName)
-
-    # Discover the Adobe app executable
-    $appExe = $null
-    $appMap = @{
-        'Photoshop'       = 'Photoshop.exe'
-        'Illustrator'     = 'Illustrator.exe'
-        'Premiere'        = 'Adobe Premiere Pro.exe'
-        'PremierePro'     = 'Adobe Premiere Pro.exe'
-        'AfterEffects'    = 'AfterFX.exe'
-        'InDesign'        = 'InDesign.exe'
-        'Lightroom'       = 'Lightroom.exe'
-        'LightroomClassic' = 'Lightroom.exe'
-        'Audition'        = 'Adobe Audition.exe'
-        'Animate'         = 'Animate.exe'
-        'MediaEncoder'    = 'Adobe Media Encoder.exe'
+function Get-AdobeTelemetryConnections {
+    $adobeProcessIds = @{}
+    Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
+        $path = $null
+        try { $path = $_.Path } catch { }
+        if ($_.ProcessName -match 'Adobe|CCX|Creative Cloud|CoreSync|Acro|RdrCEF|Substance|Dimension|LogTransport|CRLog' -or
+            ($path -and $path -match '\\Adobe\\')) {
+            $adobeProcessIds[$_.Id] = @{
+                Name = $_.ProcessName
+                Path = $path
+            }
+        }
     }
 
-    $exeName = $appMap[$AppName]
+    if ($adobeProcessIds.Count -eq 0) {
+        return @()
+    }
+
+    $connections = Get-NetTCPConnection -ErrorAction SilentlyContinue | Where-Object {
+        $adobeProcessIds.ContainsKey($_.OwningProcess) -and
+        $_.RemoteAddress -and
+        $_.RemoteAddress -notin @('0.0.0.0', '::', '127.0.0.1', '::1')
+    }
+
+    foreach ($connection in $connections) {
+        $proc = $adobeProcessIds[$connection.OwningProcess]
+        [pscustomobject]@{
+            ProcessName   = $proc.Name
+            ProcessId     = $connection.OwningProcess
+            LocalAddress  = $connection.LocalAddress
+            LocalPort     = $connection.LocalPort
+            RemoteAddress = $connection.RemoteAddress
+            RemotePort    = $connection.RemotePort
+            State         = $connection.State
+            Path          = $proc.Path
+        }
+    }
+}
+
+function Show-ConnectionReport {
+    Write-Status 'Adobe outbound connection report' -Type Header
+    $connections = @(Get-AdobeTelemetryConnections)
+    if ($connections.Count -eq 0) {
+        Write-Host '    No live Adobe-owned outbound TCP connections found' -ForegroundColor Green
+        Write-Status 'No live Adobe-owned outbound TCP connections found' -Type Success
+        return
+    }
+
+    Write-Host "    Live Adobe-owned outbound TCP connections: $($connections.Count)" -ForegroundColor Yellow
+    foreach ($connection in $connections) {
+        $line = "{0}({1}) -> {2}:{3} [{4}]" -f $connection.ProcessName, $connection.ProcessId, $connection.RemoteAddress, $connection.RemotePort, $connection.State
+        Write-Host "    $line" -ForegroundColor Yellow
+        Write-Status $line -Type Info
+    }
+}
+
+function Find-AdobeAppExecutable {
+    param([string]$AppName)
+    $exeName = $AdobeAppExecutables[$AppName]
     if (-not $exeName) {
         $exeName = "$AppName.exe"
     }
@@ -1606,11 +2188,87 @@ function Invoke-CleanLauncher {
     foreach ($installPath in $script:AdobeInstallPaths) {
         if (-not (Test-Path $installPath)) { continue }
         $found = Get-ChildItem -Path $installPath -Filter $exeName -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($found) { $appExe = $found.FullName; break }
+        if ($found) { return $found.FullName }
+    }
+    return $null
+}
+
+function Invoke-WfpTrace {
+    Write-Status 'Windows Filtering Platform trace capture' -Type Header
+    Ensure-AppDataDirectory
+    $outputPath = $TraceOutput
+    if (-not $outputPath) {
+        $outputPath = Join-Path $script:LogDir ("adobe-wfp-{0}.cab" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
     }
 
+    if ($DryRun) {
+        Write-Status "Would capture WFP trace for $TraceMinutes minute(s) to $outputPath" -Type DryRun
+        return
+    }
+
+    Write-Status "Starting WFP capture to $outputPath" -Type Info
+    & netsh wfp capture start file="$outputPath" 2>&1 | Add-Content -Path $script:LogFile -ErrorAction SilentlyContinue
+    try {
+        Start-Sleep -Seconds ($TraceMinutes * 60)
+    } finally {
+        & netsh wfp capture stop 2>&1 | Add-Content -Path $script:LogFile -ErrorAction SilentlyContinue
+    }
+    Write-Status "WFP capture saved to $outputPath" -Type Success
+}
+
+function Invoke-PlumbingTest {
+    param(
+        [string]$AppName,
+        [int]$Minutes
+    )
+    Write-Status "Plumbing test: $AppName for $Minutes minute(s)" -Type Header
+    $appExe = Find-AdobeAppExecutable -AppName $AppName
     if (-not $appExe) {
-        Write-Status "Could not find $exeName in any Adobe install path" -Type Error
+        Write-Status "Could not find Adobe app executable for $AppName" -Type Error
+        exit 1
+    }
+
+    Ensure-AppDataDirectory
+    $captureRoot = Join-Path $script:LogDir ("plumbing-{0}-{1}" -f $AppName, (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    New-Item -Path $captureRoot -ItemType Directory -Force | Out-Null
+    $connectionLog = Join-Path $captureRoot 'connections.jsonl'
+    $netstatLog = Join-Path $captureRoot 'netstat.txt'
+    $processLog = Join-Path $captureRoot 'processes.jsonl'
+
+    Stop-AdobeProcesses
+    Write-Status "Launching $AppName from $appExe" -Type Info
+    $proc = Start-Process -FilePath $appExe -PassThru
+    $deadline = (Get-Date).AddMinutes($Minutes)
+    while ((Get-Date) -lt $deadline) {
+        $connections = @(Get-AdobeTelemetryConnections)
+        $sample = [ordered]@{
+            timestamp   = (Get-Date -Format 'o')
+            app         = $AppName
+            appPid      = $proc.Id
+            connections = $connections
+        }
+        ($sample | ConvertTo-Json -Depth 5 -Compress) | Add-Content -Path $connectionLog -Encoding UTF8
+        & netstat.exe -ano 2>&1 | Add-Content -Path $netstatLog
+        $adobeProcesses = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.ProcessName -match 'Adobe|CCX|Creative Cloud|CoreSync|Acro|RdrCEF|Substance|Dimension|LogTransport|CRLog'
+        } | Select-Object Id, ProcessName, StartTime, Path
+        [ordered]@{
+            timestamp = (Get-Date -Format 'o')
+            processes = $adobeProcesses
+        } | ConvertTo-Json -Depth 4 -Compress | Add-Content -Path $processLog -Encoding UTF8
+        Start-Sleep -Seconds 10
+    }
+
+    Stop-AdobeProcesses
+    Write-Status "Plumbing test artifacts saved to $captureRoot" -Type Success
+}
+
+function Invoke-CleanLauncher {
+    param([string]$AppName)
+
+    $appExe = Find-AdobeAppExecutable -AppName $AppName
+    if (-not $appExe) {
+        Write-Status "Could not find Adobe app executable for $AppName" -Type Error
         exit 1
     }
 
@@ -1675,7 +2333,7 @@ function Remove-Watchdog {
 function Export-RunProfile {
     param([string]$Path)
     $profileData = @{
-        Version   = '2.1.0'
+        Version   = $script:Version
         CreatedAt = (Get-Date -Format 'o')
         Profile   = $Profile
         Only      = $Only
@@ -1701,6 +2359,29 @@ function Import-RunProfile {
 
 # ── Main Execution ──────────────────────────────────────────────────────────────
 
+function Invoke-ProtectionPhases {
+    $script:Counters.ConnectionsBefore = @(Get-AdobeTelemetryConnections).Count
+
+    if ((Test-PhaseEnabled 'Firewall') -or (Test-PhaseEnabled 'Hosts')) {
+        Merge-UpstreamDomains
+    }
+
+    if (Test-PhaseEnabled 'Kill')      { Stop-AdobeProcesses }
+    if (Test-PhaseEnabled 'GrowthSDK') { Remove-GrowthSDK }
+    if (Test-PhaseEnabled 'CCXProcess') { Disable-CCXProcess }
+    if (Test-PhaseEnabled 'IPCBroker') { Disable-AdobeIPCBroker }
+    if (Test-PhaseEnabled 'Tasks')     { Disable-AdobeScheduledTasks }
+    if (Test-PhaseEnabled 'Services')  { Disable-AdobeServices }
+    if (Test-PhaseEnabled 'Registry')  { Set-AdobeRegistryPolicies }
+    if (Test-PhaseEnabled 'Firewall')  { Block-AdobeFirewall }
+    if (Test-PhaseEnabled 'Hosts')     { Block-AdobeHostsFile }
+    if (Test-PhaseEnabled 'Acrobat')   { Disable-AcrobatTelemetry }
+    if (Test-PhaseEnabled 'Startup')   { Disable-AdobeStartupEntries }
+
+    Save-Manifest
+    $script:Counters.ConnectionsAfter = @(Get-AdobeTelemetryConnections).Count
+}
+
 # Handle special modes before the standard flow
 if ($InstallWatchdog) {
     Install-Watchdog
@@ -1718,6 +2399,16 @@ if ($ImportProfile) {
     Import-RunProfile -Path $ImportProfile
 }
 
+if ($ConnectionReport) {
+    Show-ConnectionReport
+    exit 0
+}
+
+if ($WfpTrace) {
+    Invoke-WfpTrace
+    exit 0
+}
+
 if ($Launcher) {
     Invoke-CleanLauncher -AppName $Launcher
     exit 0
@@ -1725,7 +2416,7 @@ if ($Launcher) {
 
 Write-Host ''
 Write-Host '  =============================================' -ForegroundColor Cyan
-Write-Host '   Disable-AdobeTelemetry v2.1.0' -ForegroundColor White
+Write-Host "   Disable-AdobeTelemetry $script:DisplayVersion" -ForegroundColor White
 Write-Host '   Comprehensive Adobe GrowthSDK + Telemetry' -ForegroundColor White
 Write-Host '   Removal and Blocking Utility' -ForegroundColor White
 Write-Host '  =============================================' -ForegroundColor Cyan
@@ -1735,6 +2426,9 @@ if ($DryRun) {
     Write-Host '  *** DRY RUN MODE - No changes will be made ***' -ForegroundColor Magenta
 }
 
+if ($Verbose) {
+    Write-Host '  Verbose rationale: enabled' -ForegroundColor Yellow
+}
 if ($Profile -ne 'Standard') {
     Write-Host "  Profile: $Profile" -ForegroundColor Yellow
 }
@@ -1746,13 +2440,14 @@ if ($Skip -and $Skip.Count -gt 0) {
 }
 
 # Initialize log
-$logHeader = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Disable-AdobeTelemetry v2.1.0 started"
+$logHeader = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Disable-AdobeTelemetry $script:DisplayVersion started"
 if ($Undo)       { $logHeader += ' (UNDO mode)' }
 if ($StatusOnly) { $logHeader += ' (STATUS mode)' }
 if ($DryRun)     { $logHeader += ' (DRY RUN mode)' }
 if ($Profile -ne 'Standard') { $logHeader += " (Profile: $Profile)" }
 if ($Only)       { $logHeader += " (Only: $($Only -join ','))" }
 if ($Skip)       { $logHeader += " (Skip: $($Skip -join ','))" }
+if ($Verbose)    { $logHeader += ' (Verbose rationale)' }
 Add-Content -Path $script:LogFile -Value $logHeader -ErrorAction SilentlyContinue
 
 if ($StatusOnly) {
@@ -1761,7 +2456,21 @@ if ($StatusOnly) {
 }
 
 if ($Undo) {
-    Invoke-Undo
+    $manifestHandled = Invoke-ManifestUndo
+    if (-not $manifestHandled) {
+        Invoke-Undo
+    } else {
+        # Remove watchdog regardless of manifest path
+        Remove-Watchdog
+        Write-Status 'Manifest-driven undo complete' -Type Header
+        Write-Host '  All recorded telemetry blocks have been reversed.' -ForegroundColor Green
+        Write-Host '  A reboot is recommended to ensure all changes take effect.' -ForegroundColor Yellow
+        Write-Host ''
+    }
+    # Remove the consumed manifest so a fresh run produces a new one
+    if (Test-Path $script:ManifestPath) {
+        Remove-Item -Path $script:ManifestPath -Force -ErrorAction SilentlyContinue
+    }
     exit 0
 }
 
@@ -1792,23 +2501,11 @@ if (-not $DryRun) {
     Write-Status 'Would create system restore point' -Type DryRun
 }
 
-# Merge upstream domains if Firewall or Hosts phases will run
-if ((Test-PhaseEnabled 'Firewall') -or (Test-PhaseEnabled 'Hosts')) {
-    Merge-UpstreamDomains
-}
+Invoke-ProtectionPhases
 
-# Execute each phase if enabled
-if (Test-PhaseEnabled 'Kill')      { Stop-AdobeProcesses }
-if (Test-PhaseEnabled 'GrowthSDK') { Remove-GrowthSDK }
-if (Test-PhaseEnabled 'CCXProcess') { Disable-CCXProcess }
-if (Test-PhaseEnabled 'IPCBroker') { Disable-AdobeIPCBroker }
-if (Test-PhaseEnabled 'Tasks')     { Disable-AdobeScheduledTasks }
-if (Test-PhaseEnabled 'Services')  { Disable-AdobeServices }
-if (Test-PhaseEnabled 'Registry')  { Set-AdobeRegistryPolicies }
-if (Test-PhaseEnabled 'Firewall')  { Block-AdobeFirewall }
-if (Test-PhaseEnabled 'Hosts')     { Block-AdobeHostsFile }
-if (Test-PhaseEnabled 'Acrobat')   { Disable-AcrobatTelemetry }
-if (Test-PhaseEnabled 'Startup')   { Disable-AdobeStartupEntries }
+if ($PlumbingTest) {
+    Invoke-PlumbingTest -AppName $PlumbingApp -Minutes $PlumbingMinutes
+}
 
 Show-Summary
 
@@ -1820,4 +2517,5 @@ if ($DryRun) {
 }
 Write-Host '  Note: Premiere/Photoshop will continue to function normally.' -ForegroundColor Gray
 Write-Host "  Log saved to: $script:LogFile" -ForegroundColor Gray
+Write-Host "  JSONL log saved to: $script:JsonLogFile" -ForegroundColor Gray
 Write-Host ''
