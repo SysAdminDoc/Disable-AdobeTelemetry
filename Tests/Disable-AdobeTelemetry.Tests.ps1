@@ -264,3 +264,108 @@ Describe 'Hosts File Markers' {
         $scriptContent | Should -Match 'Adobe Creative Cloud WAM - End'
     }
 }
+
+Describe 'Exit Codes and OutputFormat' {
+    It 'defines structured exit codes (0, 2, 3, 3010)' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'exit 0'
+        $scriptContent | Should -Match 'exit 2'
+        $scriptContent | Should -Match 'exit 3\b'
+        $scriptContent | Should -Match 'exit 3010'
+    }
+
+    It 'supports OutputFormat parameter' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match "ValidateSet\('Text','JSON'\)"
+        $scriptContent | Should -Match 'OutputFormat'
+    }
+
+    It 'tracks error count in Counters' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'Errors\s*=\s*0'
+        $scriptContent | Should -Match 'Counters\.Errors'
+    }
+}
+
+Describe 'Manifest Round-Trip' {
+    It 'Add-ManifestAction and Save-Manifest produce valid JSON' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $addManifest = $funcDefs | Where-Object { $_.Name -eq 'Add-ManifestAction' }
+        $saveManifest = $funcDefs | Where-Object { $_.Name -eq 'Save-Manifest' }
+        $getManifestDetail = $funcDefs | Where-Object { $_.Name -eq 'Get-ManifestDetail' }
+        $initDir = $funcDefs | Where-Object { $_.Name -eq 'Initialize-AppDataDirectory' }
+        $writeStatus = $funcDefs | Where-Object { $_.Name -eq 'Write-Status' }
+
+        $addManifest | Should -Not -BeNullOrEmpty
+        $saveManifest | Should -Not -BeNullOrEmpty
+        $getManifestDetail | Should -Not -BeNullOrEmpty
+
+        $tempDir = Join-Path $env:TEMP "PesterManifestTest_$(Get-Random)"
+        New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
+        try {
+            $script:ManifestDir = $tempDir
+            $script:ManifestPath = Join-Path $tempDir 'undo-manifest.json'
+            $script:ManifestActions = @()
+            $script:LogDir = Join-Path $tempDir 'logs'
+            $script:LogFile = Join-Path $tempDir 'test.log'
+            $script:JsonLogFile = Join-Path $tempDir 'test.jsonl'
+            $script:Version = '0.0.0-test'
+            $script:Counters = @{ Errors = 0 }
+            $DryRun = $false
+            $Profile = 'Standard'
+            $Only = $null
+            $Skip = $null
+            $Undo = $false
+            $StatusOnly = $false
+            $Verbose = $false
+            $OutputFormat = 'Text'
+
+            Invoke-Expression $initDir.Extent.Text
+            function Write-Status { param([string]$Message, [string]$Type = 'Info') }
+            Invoke-Expression $addManifest.Extent.Text
+            Invoke-Expression $saveManifest.Extent.Text
+            Invoke-Expression $getManifestDetail.Extent.Text
+
+            Add-ManifestAction -Phase 'TestPhase' -Action 'SetRegistryValue' -Details @{
+                Path = 'HKLM:\TEST'; Name = 'TestVal'; Value = 1; Type = 'DWord'
+                PreviousExists = $true; PreviousValue = 0; PreviousType = 'DWord'
+            }
+            Add-ManifestAction -Phase 'TestPhase' -Action 'AddFirewallRule' -Details @{
+                DisplayName = 'Test Rule'
+            }
+
+            $script:ManifestActions.Count | Should -Be 2
+
+            Save-Manifest
+
+            Test-Path $script:ManifestPath | Should -BeTrue
+            $json = Get-Content $script:ManifestPath -Raw | ConvertFrom-Json
+            $json.SchemaVersion | Should -Be 2
+            $json.Actions.Count | Should -Be 2
+            (Get-ManifestDetail $json.Actions[0].Details 'Path') | Should -Be 'HKLM:\TEST'
+            (Get-ManifestDetail $json.Actions[1].Details 'DisplayName') | Should -Be 'Test Rule'
+        } finally {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Describe 'Upstream Domain Merge Filtering' {
+    It 'Merge-UpstreamDomains function filters safelist domains' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'DomainSafelist\s+-notcontains'
+    }
+
+    It 'safelist includes critical authentication domains' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $safelistMatch = [regex]::Match($scriptContent, '\$script:DomainSafelist\s*=\s*@\(([^)]+)\)')
+        $safelistDomains = $safelistMatch.Groups[1].Value -split "`n" |
+            ForEach-Object { $_.Trim().Trim("'").Trim('"') } |
+            Where-Object { $_ -and $_ -ne '' }
+        $safelistDomains | Should -Contain 'ims-na1.adobelogin.com'
+        $safelistDomains | Should -Contain 'auth.services.adobe.com'
+        $safelistDomains | Should -Contain 'ccmdls.adobe.com'
+        $safelistDomains | Should -Contain 'ardownload2.adobe.com'
+    }
+}
