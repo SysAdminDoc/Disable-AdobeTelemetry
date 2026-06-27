@@ -2537,8 +2537,26 @@ $script:WatchdogTaskName = 'Disable-AdobeTelemetry Watchdog'
 
 function Install-Watchdog {
     $scriptFullPath = $PSCommandPath
+
+    # Warn if script is in a temp or downloads location that may not persist
+    $warnPaths = @($env:TEMP, "$env:USERPROFILE\Downloads", "$env:USERPROFILE\Desktop")
+    foreach ($warnPath in $warnPaths) {
+        if ($warnPath -and $scriptFullPath -like "$warnPath*") {
+            Write-Status "WARNING: Script is in '$warnPath' — if moved, the watchdog task will fail silently. Consider copying to a permanent location first." -Type Warning
+        }
+    }
+
+    # Register event source for watchdog logging (idempotent)
+    try {
+        if (-not [System.Diagnostics.EventLog]::SourceExists('Disable-AdobeTelemetry')) {
+            New-EventLog -LogName Application -Source 'Disable-AdobeTelemetry' -ErrorAction Stop
+        }
+    } catch { }
+
+    # Wrap the scheduled action with a path check so failures are visible in Event Viewer
+    $preCheck = "if (-not (Test-Path '$scriptFullPath')) { try { Write-EventLog -LogName Application -Source 'Disable-AdobeTelemetry' -EventId 1001 -EntryType Warning -Message 'Watchdog: script not found at $scriptFullPath' } catch {}; exit 1 }"
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
-        -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptFullPath`" -Skip Kill"
+        -Argument "-NoProfile -ExecutionPolicy Bypass -Command `"$preCheck; & '$scriptFullPath' -Skip Kill`""
     $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At '09:00'
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
