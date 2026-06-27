@@ -258,10 +258,12 @@ Describe 'Hosts File Markers' {
         $scriptContent | Should -Match '# --- End Adobe Telemetry Block ---'
     }
 
-    It 'detects WAM markers' {
+    It 'detects WAM markers in both old and new CC v26.4+ formats' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
-        $scriptContent | Should -Match 'Adobe Creative Cloud WAM - Start'
-        $scriptContent | Should -Match 'Adobe Creative Cloud WAM - End'
+        # The WAM detection regex must handle both single-# and double-## marker formats
+        $scriptContent | Should -Match 'Adobe Creative Cloud WAM'
+        # Verify the regex uses #{1,2} to match both old and new formats
+        $scriptContent | Should -Match '#\{1,2\}'
     }
 }
 

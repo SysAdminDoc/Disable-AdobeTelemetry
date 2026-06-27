@@ -1170,16 +1170,14 @@ function Block-AdobeHostsFile {
         Path = $hostsPath; BackupPath = $backupPath
     }
 
-    # Remove Adobe WAM injected entries if present
-    $wamMarker = '# Adobe Creative Cloud WAM - Start'
-    $wamEndMarker = '# Adobe Creative Cloud WAM - End'
-    if ($hostsContent -match [regex]::Escape($wamMarker)) {
-        $wamPattern = "(?s)\r?\n?$([regex]::Escape($wamMarker)).*?$([regex]::Escape($wamEndMarker))\r?\n?"
+    # Remove Adobe WAM injected entries if present (matches both old single-# and new CC v26.4+ double-## formats)
+    $wamPattern = '(?s)\r?\n?#{1,2}\s*Adobe Creative Cloud WAM\s*-\s*Start\s*#{0,2}.*?#{1,2}\s*Adobe Creative Cloud WAM\s*-\s*End\s*#{0,2}\r?\n?'
+    if ($hostsContent -match $wamPattern) {
         $hostsContent = $hostsContent -replace $wamPattern, ''
         Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding ASCII
         Write-Status 'Removed Adobe WAM hosts injection' -Type Success
         Add-ManifestAction -Phase 'Hosts' -Action 'RemoveHostsBlock' -Details @{
-            Path = $hostsPath; Marker = $wamMarker; EndMarker = $wamEndMarker
+            Path = $hostsPath; Marker = 'WAM'; EndMarker = 'WAM'
         }
     }
 
@@ -1901,11 +1899,9 @@ function Invoke-Undo {
     $endMarker = '# --- End Adobe Telemetry Block ---'
     $hostsContent = Get-Content $hostsPath -Raw -ErrorAction SilentlyContinue
     $hostsModified = $false
-    # Remove WAM entries if present
-    $wamMarker = '# Adobe Creative Cloud WAM - Start'
-    $wamEndMarker = '# Adobe Creative Cloud WAM - End'
-    if ($hostsContent -and $hostsContent -match [regex]::Escape($wamMarker)) {
-        $wamPattern = "(?s)\r?\n?$([regex]::Escape($wamMarker)).*?$([regex]::Escape($wamEndMarker))\r?\n?"
+    # Remove WAM entries if present (matches both old single-# and new CC v26.4+ double-## formats)
+    $wamPattern = '(?s)\r?\n?#{1,2}\s*Adobe Creative Cloud WAM\s*-\s*Start\s*#{0,2}.*?#{1,2}\s*Adobe Creative Cloud WAM\s*-\s*End\s*#{0,2}\r?\n?'
+    if ($hostsContent -and $hostsContent -match $wamPattern) {
         $hostsContent = $hostsContent -replace $wamPattern, ''
         $hostsModified = $true
         Write-Status 'Removed Adobe WAM hosts injection' -Type Success
