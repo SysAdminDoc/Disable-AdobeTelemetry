@@ -1074,7 +1074,7 @@ function Block-AdobeFirewall {
         $mpStatus = Get-MpComputerStatus -ErrorAction Stop
         $mpPrefs = Get-MpPreference -ErrorAction Stop
         if ($mpStatus.AMRunningMode -eq 'Normal' -and $mpPrefs.EnableNetworkProtection -ge 1) {
-            $dynamicKeywordsAvailable = (Get-Command New-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue) -ne $null
+            $dynamicKeywordsAvailable = $null -ne (Get-Command New-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue)
         }
     } catch { }
 
