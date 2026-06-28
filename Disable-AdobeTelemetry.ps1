@@ -56,7 +56,7 @@
 
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.3.1
+    Version : 2.3.2
     Date    : 2026-06-27
 
     Exit codes:
@@ -128,7 +128,7 @@ if (-not $isAdmin) {
 
 $ErrorActionPreference = 'Continue'
 
-$script:DisplayVersion = 'v2.3.1'
+$script:DisplayVersion = 'v2.3.2'
 $script:Version = $script:DisplayVersion.TrimStart('v')
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
 $script:LogDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\logs'
@@ -2614,6 +2614,7 @@ function Remove-Watchdog {
 function Export-RunProfile {
     param([string]$Path)
     $profileData = @{
+        SchemaVersion = 1
         Version   = $script:Version
         CreatedAt = (Get-Date -Format 'o')
         Profile   = $Profile
@@ -2625,16 +2626,104 @@ function Export-RunProfile {
     Write-Status "Profile exported to $Path" -Type Success
 }
 
+function Get-RunProfileProperty {
+    param(
+        [Parameter(Mandatory=$true)]$ProfileData,
+        [Parameter(Mandatory=$true)][string]$Name
+    )
+    $property = $ProfileData.PSObject.Properties[$Name]
+    if ($property) { return $property.Value }
+    return $null
+}
+
+function Test-RunProfileData {
+    param($ProfileData)
+
+    $errors = New-Object System.Collections.Generic.List[string]
+    if (-not $ProfileData) {
+        $errors.Add('Profile JSON is empty or invalid')
+        return [pscustomobject]@{ IsValid = $false; Errors = @($errors); Data = $null }
+    }
+
+    foreach ($requiredField in @('SchemaVersion', 'Version', 'Profile', 'Domains')) {
+        if (-not $ProfileData.PSObject.Properties[$requiredField]) {
+            $errors.Add("Missing required field: $requiredField")
+        }
+    }
+
+    $schemaVersion = Get-RunProfileProperty -ProfileData $ProfileData -Name 'SchemaVersion'
+    $schemaNumber = 0
+    if ($null -ne $schemaVersion -and (-not [int]::TryParse([string]$schemaVersion, [ref]$schemaNumber) -or $schemaNumber -ne 1)) {
+        $errors.Add("Unsupported schema version: $schemaVersion")
+    }
+
+    $version = Get-RunProfileProperty -ProfileData $ProfileData -Name 'Version'
+    if ($version -and ([string]$version -notmatch '^\d+\.\d+\.\d+([-.][A-Za-z0-9.-]+)?$')) {
+        $errors.Add("Invalid version: $version")
+    }
+
+    $profileTier = Get-RunProfileProperty -ProfileData $ProfileData -Name 'Profile'
+    if ($profileTier -and @('Minimal', 'Standard', 'Aggressive') -notcontains [string]$profileTier) {
+        $errors.Add("Invalid profile tier: $profileTier")
+    }
+
+    foreach ($phaseField in @('Only', 'Skip')) {
+        $phaseValues = Get-RunProfileProperty -ProfileData $ProfileData -Name $phaseField
+        if ($null -ne $phaseValues) {
+            foreach ($phase in @($phaseValues)) {
+                if ($phase -and $script:ValidPhases -notcontains [string]$phase) {
+                    $errors.Add("Invalid $phaseField phase: $phase")
+                }
+            }
+        }
+    }
+
+    $domains = Get-RunProfileProperty -ProfileData $ProfileData -Name 'Domains'
+    $domainValues = @($domains) | Where-Object { $null -ne $_ -and [string]$_ -ne '' }
+    if ($domainValues.Count -eq 0) {
+        $errors.Add('Domains must contain at least one domain')
+    } else {
+        foreach ($domain in $domainValues) {
+            if ([string]$domain -notmatch '^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)+$') {
+                $errors.Add("Invalid domain: $domain")
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        IsValid = ($errors.Count -eq 0)
+        Errors  = @($errors)
+        Data    = $ProfileData
+    }
+}
+
 function Import-RunProfile {
     param([string]$Path)
-    if (-not (Test-Path $Path)) {
+    if (-not (Test-Path -LiteralPath $Path)) {
         Write-Status "Profile not found: $Path" -Type Error
-        exit 1
+        exit 2
     }
-    $profileData = Get-Content $Path -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
-    if ($profileData.Only) { $script:Only = @($profileData.Only) }
-    if ($profileData.Skip) { $script:Skip = @($profileData.Skip) }
-    if ($profileData.Domains) { $script:TelemetryDomains = @($profileData.Domains) }
+    try {
+        $profileData = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        Write-Status "Invalid profile JSON: $($_.Exception.Message)" -Type Error
+        exit 2
+    }
+
+    $validation = Test-RunProfileData -ProfileData $profileData
+    if (-not $validation.IsValid) {
+        foreach ($validationError in $validation.Errors) {
+            Write-Status "Invalid profile: $validationError" -Type Error
+        }
+        exit 2
+    }
+
+    $script:Profile = [string]$profileData.Profile
+    $importedOnly = Get-RunProfileProperty -ProfileData $profileData -Name 'Only'
+    $importedSkip = Get-RunProfileProperty -ProfileData $profileData -Name 'Skip'
+    $script:Only = if ($null -ne $importedOnly -and @($importedOnly).Count -gt 0) { @($importedOnly) } else { $null }
+    $script:Skip = if ($null -ne $importedSkip -and @($importedSkip).Count -gt 0) { @($importedSkip) } else { $null }
+    $script:TelemetryDomains = @($profileData.Domains) | Sort-Object -Unique
     Write-Status "Profile loaded from $Path (Profile: $($profileData.Profile))" -Type Success
 }
 

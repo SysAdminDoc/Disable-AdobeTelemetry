@@ -547,10 +547,14 @@ Describe 'Negative / Edge-Case Tests' {
         $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
         $exportFunc = $funcDefs | Where-Object { $_.Name -eq 'Export-RunProfile' }
         $importFunc = $funcDefs | Where-Object { $_.Name -eq 'Import-RunProfile' }
+        $profilePropertyFunc = $funcDefs | Where-Object { $_.Name -eq 'Get-RunProfileProperty' }
+        $profileValidationFunc = $funcDefs | Where-Object { $_.Name -eq 'Test-RunProfileData' }
         $initDir = $funcDefs | Where-Object { $_.Name -eq 'Initialize-AppDataDirectory' }
 
         $exportFunc | Should -Not -BeNullOrEmpty
         $importFunc | Should -Not -BeNullOrEmpty
+        $profilePropertyFunc | Should -Not -BeNullOrEmpty
+        $profileValidationFunc | Should -Not -BeNullOrEmpty
 
         $tempDir = Join-Path $env:TEMP "PesterProfileTest_$(Get-Random)"
         New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
@@ -568,6 +572,8 @@ Describe 'Negative / Edge-Case Tests' {
 
             Invoke-Expression $initDir.Extent.Text
             function Write-Status { param([string]$Message, [string]$Type = 'Info') }
+            Invoke-Expression $profilePropertyFunc.Extent.Text
+            Invoke-Expression $profileValidationFunc.Extent.Text
             Invoke-Expression $exportFunc.Extent.Text
             Invoke-Expression $importFunc.Extent.Text
 
@@ -576,6 +582,7 @@ Describe 'Negative / Edge-Case Tests' {
             Test-Path $profilePath | Should -BeTrue
 
             $json = Get-Content $profilePath -Raw | ConvertFrom-Json
+            $json.SchemaVersion | Should -Be 1
             $json.Version | Should -Be '0.0.0-test'
             $json.Profile | Should -Be 'Standard'
             $json.Domains.Count | Should -Be 3
@@ -586,6 +593,48 @@ Describe 'Negative / Edge-Case Tests' {
             $script:TelemetryDomains | Should -Contain 'test1.adobe.io'
         } finally {
             Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'rejects invalid imported profile data before mutation' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $profilePropertyFunc = $funcDefs | Where-Object { $_.Name -eq 'Get-RunProfileProperty' }
+        $profileValidationFunc = $funcDefs | Where-Object { $_.Name -eq 'Test-RunProfileData' }
+
+        $profilePropertyFunc | Should -Not -BeNullOrEmpty
+        $profileValidationFunc | Should -Not -BeNullOrEmpty
+
+        Invoke-Expression $profilePropertyFunc.Extent.Text
+        Invoke-Expression $profileValidationFunc.Extent.Text
+        $script:ValidPhases = @(
+            'Kill', 'GrowthSDK', 'CCXProcess', 'IPCBroker',
+            'Tasks', 'Services', 'Registry', 'Firewall',
+            'Hosts', 'Acrobat', 'Startup'
+        )
+
+        $validProfile = [pscustomobject]@{
+            SchemaVersion = 1
+            Version       = '2.3.2'
+            Profile       = 'Standard'
+            Only          = @('Firewall', 'Hosts')
+            Skip          = @()
+            Domains       = @('cc-api-data.adobe.io', 'fp.adobestats.io')
+        }
+        (Test-RunProfileData -ProfileData $validProfile).IsValid | Should -BeTrue
+
+        $invalidProfiles = @(
+            [pscustomobject]@{ Version = '2.3.2'; Profile = 'Standard'; Domains = @('cc-api-data.adobe.io') },
+            [pscustomobject]@{ SchemaVersion = 99; Version = '2.3.2'; Profile = 'Standard'; Domains = @('cc-api-data.adobe.io') },
+            [pscustomobject]@{ SchemaVersion = 1; Version = '2.3.2'; Profile = 'Maximum'; Domains = @('cc-api-data.adobe.io') },
+            [pscustomobject]@{ SchemaVersion = 1; Version = '2.3.2'; Profile = 'Standard'; Only = @('BogusPhase'); Domains = @('cc-api-data.adobe.io') },
+            [pscustomobject]@{ SchemaVersion = 1; Version = '2.3.2'; Profile = 'Standard'; Domains = @('not a domain') },
+            [pscustomobject]@{ SchemaVersion = 1; Version = '2.3.2'; Profile = 'Standard'; Domains = @() }
+        )
+
+        foreach ($invalidProfile in $invalidProfiles) {
+            $result = Test-RunProfileData -ProfileData $invalidProfile
+            $result.IsValid | Should -BeFalse
+            $result.Errors.Count | Should -BeGreaterThan 0
         }
     }
 
