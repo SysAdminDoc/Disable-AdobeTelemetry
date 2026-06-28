@@ -56,7 +56,7 @@
 
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.3.5
+    Version : 2.3.6
     Date    : 2026-06-27
 
     Exit codes:
@@ -128,7 +128,7 @@ if (-not $isAdmin) {
 
 $ErrorActionPreference = 'Continue'
 
-$script:DisplayVersion = 'v2.3.5'
+$script:DisplayVersion = 'v2.3.6'
 $script:Version = $script:DisplayVersion.TrimStart('v')
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
 $script:LogDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\logs'
@@ -2280,6 +2280,84 @@ function Invoke-Undo {
 
 # ── Status Function ──────────────────────────────────────────────────────────
 
+function Add-PolicyStatusCheck {
+    param(
+        $Checks,
+        [string]$Phase,
+        [string]$Path,
+        [string]$Name,
+        $Expected,
+        [string]$Type = 'DWord'
+    )
+    $null = $Checks.Add([ordered]@{
+        Phase    = $Phase
+        Path     = $Path
+        Name     = $Name
+        Expected = $Expected
+        Type     = $Type
+    })
+}
+
+function Get-RegistryPolicyStatusChecks {
+    $checks = New-Object System.Collections.ArrayList
+    $policyGroups = @(
+        @{ Phase = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Adobe\Common\Enterprise'; Values = @{ DisableUsageData = 1; DisableFileSync = 1; DisableAutoupdates = 1; DisableCCDesktop = 0 } },
+        @{ Phase = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Adobe\CCXNew'; Values = @{ DisableGrowth = 1 } },
+        @{ Phase = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Adobe\CreativeCloud'; Values = @{ DisableLaunchOnLogin = 1; DisableNotifications = 1; DisableAutoUpdates = 1 } },
+        @{ Phase = 'Registry'; Path = 'HKLM:\SOFTWARE\Adobe\Adobe Genuine Service'; Values = @{ AgsDisabled = 1 } },
+        @{ Phase = 'Registry'; Path = 'HKCU:\SOFTWARE\Adobe\CommonFiles\UsageCC'; Values = @{ AUSUF = 0 } },
+        @{ Phase = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Adobe\Substance 3D'; Values = @{ DisableAnalytics = 1; DisableTelemetry = 1; DisableAutoUpdate = 1 } },
+        @{ Phase = 'Registry'; Path = 'HKCU:\SOFTWARE\Adobe\Substance 3D Painter\Settings'; Values = @{ enable_analytics = 0 } },
+        @{ Phase = 'Registry'; Path = 'HKCU:\SOFTWARE\Adobe\Substance 3D Designer\Settings'; Values = @{ enable_analytics = 0 } },
+        @{ Phase = 'Registry'; Path = 'HKCU:\SOFTWARE\Adobe\Substance 3D Sampler\Settings'; Values = @{ enable_analytics = 0 } },
+        @{ Phase = 'Acrobat'; Path = 'HKCU:\SOFTWARE\Adobe\Adobe Acrobat\DC\AVAlert\cCheckbox'; Values = @{ iAcro498 = 1 } },
+        @{ Phase = 'Acrobat'; Path = 'HKCU:\SOFTWARE\Adobe\CommonFiles\CRLog'; Type = 'String'; Values = @{ 'Never Ask' = '1' } },
+        @{ Phase = 'Acrobat'; Path = 'HKCU:\SOFTWARE\Adobe\Adobe Acrobat\DC\Workflows'; Values = @{ bNeedSynchronizer = 0 } }
+    )
+
+    foreach ($group in $policyGroups) {
+        foreach ($name in $group.Values.Keys) {
+            $type = if ($group.Type) { $group.Type } else { 'DWord' }
+            Add-PolicyStatusCheck -Checks $checks -Phase $group.Phase -Path $group.Path -Name $name -Expected $group.Values[$name] -Type $type
+        }
+    }
+
+    foreach ($product in @('Adobe Acrobat', 'Acrobat Reader')) {
+        foreach ($basePath in @("HKLM:\SOFTWARE\Policies\Adobe\$product\DC\FeatureLockDown", "HKLM:\SOFTWARE\Wow6432Node\Policies\Adobe\$product\DC\FeatureLockDown")) {
+            foreach ($name in @('bUsageMeasurement', 'bUpdater', 'bEnableGentech')) {
+                Add-PolicyStatusCheck -Checks $checks -Phase 'Acrobat' -Path $basePath -Name $name -Expected 0
+            }
+            foreach ($name in @('bAcroSuppressUpsell', 'bWhatsNewExp')) {
+                Add-PolicyStatusCheck -Checks $checks -Phase 'Acrobat' -Path $basePath -Name $name -Expected 1
+            }
+            foreach ($name in @('bToggleAdobeSign', 'bTogglePrefsSync', 'bToggleWebConnectors', 'bAdobeSendPluginToggle', 'bToggleAdobeDocumentServices', 'bToggleDocumentCloud', 'bToggleFillSign', 'bToggleSendAndTrack', 'bToggleAcroSendAndTrack')) {
+                Add-PolicyStatusCheck -Checks $checks -Phase 'Acrobat' -Path "$basePath\cServices" -Name $name -Expected 1
+            }
+            foreach ($name in @('bShowMsgAtLaunch', 'bDontShowMsgWhenViewingDoc')) {
+                Add-PolicyStatusCheck -Checks $checks -Phase 'Acrobat' -Path "$basePath\cIPM" -Name $name -Expected 0
+            }
+            Add-PolicyStatusCheck -Checks $checks -Phase 'Acrobat' -Path "$basePath\cCloud" -Name 'bDisableADCFileStore' -Expected 1
+            Add-PolicyStatusCheck -Checks $checks -Phase 'Acrobat' -Path "$basePath\cWelcomeScreen" -Name 'bShowWelcomeScreen' -Expected 0
+            Add-PolicyStatusCheck -Checks $checks -Phase 'Acrobat' -Path "$basePath\cWebmailProfiles" -Name 'bDisableWebmail' -Expected 1
+            Add-PolicyStatusCheck -Checks $checks -Phase 'Acrobat' -Path "$basePath\cSharePoint" -Name 'bDisableSharePointFeatures' -Expected 1
+
+            if ($Profile -eq 'Aggressive') {
+                foreach ($name in @('bProtectedMode', 'bEnhancedSecurityStandalone', 'bEnhancedSecurityInBrowser', 'iFileAttachmentPerms', 'bDisableTrustedFolders', 'bDisableTrustedSites', 'bDisableOSTrustedSites', 'bEnableProtectedModeAppContainer')) {
+                    Add-PolicyStatusCheck -Checks $checks -Phase 'Acrobat' -Path $basePath -Name $name -Expected 1
+                }
+                foreach ($name in @('bEnableFlash', 'bEnableCertificateBasedTrust')) {
+                    Add-PolicyStatusCheck -Checks $checks -Phase 'Acrobat' -Path $basePath -Name $name -Expected 0
+                }
+                Add-PolicyStatusCheck -Checks $checks -Phase 'Acrobat' -Path $basePath -Name 'iProtectedView' -Expected 2
+                Add-PolicyStatusCheck -Checks $checks -Phase 'Acrobat' -Path "$basePath\cDefaultLaunchURLPerms" -Name 'iURLPerms' -Expected 1
+                Add-PolicyStatusCheck -Checks $checks -Phase 'Acrobat' -Path "$basePath\cDefaultLaunchURLPerms" -Name 'iUnknownURLPerms' -Expected 3
+            }
+        }
+    }
+
+    return @($checks)
+}
+
 function Get-StatusData {
     $statusData = [ordered]@{
         Version    = $script:Version
@@ -2373,31 +2451,23 @@ function Get-StatusData {
         $statusData.IFEO += @{ Executable = $ifeoExe; Active = $active; Debugger = $debugger }
     }
 
-    $regChecks = @(
-        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Common\Enterprise'; Name = 'DisableUsageData'; Expected = 1 },
-        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Common\Enterprise'; Name = 'DisableFileSync'; Expected = 1 },
-        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Common\Enterprise'; Name = 'DisableAutoupdates'; Expected = 1 },
-        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\CCXNew'; Name = 'DisableGrowth'; Expected = 1 },
-        @{ Path = 'HKLM:\SOFTWARE\Adobe\Adobe Genuine Service'; Name = 'AgsDisabled'; Expected = 1 },
-        @{ Path = 'HKCU:\SOFTWARE\Adobe\CommonFiles\UsageCC'; Name = 'AUSUF'; Expected = 0 },
-        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown'; Name = 'bUsageMeasurement'; Expected = 0 },
-        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown'; Name = 'bAcroSuppressUpsell'; Expected = 1 },
-        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cServices'; Name = 'bToggleAdobeSign'; Expected = 1 },
-        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown\cIPM'; Name = 'bShowMsgAtLaunch'; Expected = 0 },
-        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown'; Name = 'bUsageMeasurement'; Expected = 0 },
-        @{ Path = 'HKCU:\SOFTWARE\Adobe\CommonFiles\CRLog'; Name = 'Never Ask'; Expected = '1' },
-        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Substance 3D'; Name = 'DisableAnalytics'; Expected = 1 },
-        @{ Path = 'HKLM:\SOFTWARE\Policies\Adobe\Substance 3D'; Name = 'DisableTelemetry'; Expected = 1 },
-        @{ Path = 'HKCU:\SOFTWARE\Adobe\Substance 3D Painter\Settings'; Name = 'enable_analytics'; Expected = 0 }
-    )
-    foreach ($check in $regChecks) {
+    foreach ($check in (Get-RegistryPolicyStatusChecks)) {
         $val = $null
         $state = 'NotSet'
         if (Test-Path $check.Path) {
             $val = (Get-ItemProperty -Path $check.Path -Name $check.Name -ErrorAction SilentlyContinue).($check.Name)
             if ($null -ne $val) { $state = if ($val -eq $check.Expected) { 'Correct' } else { 'Incorrect' } }
         } else { $state = 'PathNotFound' }
-        $statusData.Registry += @{ Name = $check.Name; State = $state; Value = $val; Expected = $check.Expected }
+        $statusData.Registry += @{
+            Phase    = $check.Phase
+            Path     = $check.Path
+            Name     = $check.Name
+            Type     = $check.Type
+            State    = $state
+            Actual   = $val
+            Value    = $val
+            Expected = $check.Expected
+        }
     }
 
     $runPaths = @(

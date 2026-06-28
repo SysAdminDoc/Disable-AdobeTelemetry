@@ -891,6 +891,30 @@ Describe 'Negative / Edge-Case Tests' {
         }
     }
 
+    It 'registry status convergence inventory covers fleet policy surfaces' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $addPolicyCheck = $funcDefs | Where-Object { $_.Name -eq 'Add-PolicyStatusCheck' }
+        $policyStatusChecks = $funcDefs | Where-Object { $_.Name -eq 'Get-RegistryPolicyStatusChecks' }
+        $addPolicyCheck | Should -Not -BeNullOrEmpty
+        $policyStatusChecks | Should -Not -BeNullOrEmpty
+
+        Invoke-Expression $addPolicyCheck.Extent.Text
+        Invoke-Expression $policyStatusChecks.Extent.Text
+        $Profile = 'Aggressive'
+
+        $checks = @(Get-RegistryPolicyStatusChecks)
+        $checks.Count | Should -BeGreaterThan 60
+        $checks.Path | Should -Contain 'HKLM:\SOFTWARE\Policies\Adobe\Substance 3D'
+        $checks.Path | Should -Contain 'HKCU:\SOFTWARE\Adobe\Substance 3D Painter\Settings'
+        $checks.Path | Should -Contain 'HKCU:\SOFTWARE\Adobe\CommonFiles\CRLog'
+        ($checks | Where-Object { $_.Path -like '*Wow6432Node*' -and $_.Name -eq 'bUsageMeasurement' }).Count | Should -Be 2
+        ($checks | Where-Object { $_.Name -eq 'iUnknownURLPerms' -and $_.Expected -eq 3 }).Count | Should -Be 4
+
+        foreach ($field in @('Phase', 'Path', 'Name', 'Expected', 'Type')) {
+            $checks[0].Keys | Should -Contain $field
+        }
+    }
+
     It 'Get-StatusData defines all required status fields' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         # Extract the Get-StatusData function and verify it initializes all required fields
@@ -912,6 +936,10 @@ Describe 'Negative / Edge-Case Tests' {
         $funcBody | Should -Match 'Watchdog'
         $funcBody | Should -Match 'DynamicKeywords'
         $funcBody | Should -Match 'Verification'
+        $funcBody | Should -Match 'Get-RegistryPolicyStatusChecks'
+        $funcBody | Should -Match 'Actual'
+        $funcBody | Should -Match 'Path'
+        $funcBody | Should -Match 'Phase'
         $scriptContent | Should -Match 'Invoke-PostApplyVerification'
         $scriptContent | Should -Match 'VerificationFailures'
     }
