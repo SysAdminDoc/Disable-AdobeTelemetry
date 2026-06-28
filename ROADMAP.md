@@ -6,13 +6,6 @@ No actionable items remaining. See Roadmap_Blocked.md for items awaiting credent
 
 ## Research-Driven Additions
 
-- [ ] P1 - Expand JSON status to full policy convergence
-  Why: Fleet operators need `-StatusOnly -OutputFormat JSON` to prove every registry policy written by apply is present and correct.
-  Evidence: `Disable-AdobeTelemetry.ps1:836`, `Disable-AdobeTelemetry.ps1:1534`, `Disable-AdobeTelemetry.ps1:2188`; Adobe Acrobat ETK and DISA STIG references.
-  Touches: `Disable-AdobeTelemetry.ps1`, `Tests/Disable-AdobeTelemetry.Tests.ps1`, `README.md`
-  Acceptance: status registry checks are generated from the same policy inventory used by apply, include Acrobat/Reader/Wow6432Node/Substance/current-user keys, and expose per-key path/name/expected/actual/state in JSON.
-  Complexity: M
-
 - [ ] P2 - Bring the WPF GUI to CLI parity
   Why: The CLI already supports watchdog, profile import/export, WFP trace, plumbing tests, and JSON status, but the GUI exposes only apply/status/undo/connection report.
   Evidence: `Disable-AdobeTelemetry.GUI.ps1:120`, `Disable-AdobeTelemetry.ps1:2666`; GlassWire/simplewall/Portmaster UX patterns.
