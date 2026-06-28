@@ -56,7 +56,7 @@
 
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.3.2
+    Version : 2.3.3
     Date    : 2026-06-27
 
     Exit codes:
@@ -128,7 +128,7 @@ if (-not $isAdmin) {
 
 $ErrorActionPreference = 'Continue'
 
-$script:DisplayVersion = 'v2.3.2'
+$script:DisplayVersion = 'v2.3.3'
 $script:Version = $script:DisplayVersion.TrimStart('v')
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
 $script:LogDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\logs'
@@ -243,6 +243,7 @@ $script:Counters = @{
     ExesNeutralized   = 0
     ConnectionsBefore = -1
     ConnectionsAfter  = -1
+    VerificationFailures = 0
     Errors            = 0
 }
 
@@ -1225,6 +1226,36 @@ function Block-AdobeHostsFile {
     Write-Status 'DNS cache flushed' -Type Info
 }
 
+function Get-HostsDomainMappings {
+    param(
+        [string]$HostsContent,
+        [string]$Domain = 'detect-ccd.creativecloud.adobe.com'
+    )
+
+    $mappings = @()
+    if (-not $HostsContent) { return $mappings }
+
+    foreach ($line in ($HostsContent -split "`r?`n")) {
+        $trimmed = $line.Trim()
+        if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
+
+        $parts = $trimmed -split '\s+'
+        if ($parts.Count -lt 2) { continue }
+
+        foreach ($hostName in $parts[1..($parts.Count - 1)]) {
+            if ($hostName -ieq $Domain) {
+                $mappings += [pscustomobject]@{
+                    Address = $parts[0]
+                    Host    = $hostName
+                    Line    = $trimmed
+                }
+            }
+        }
+    }
+
+    return $mappings
+}
+
 function Disable-CCXProcess {
     Write-Status 'Permanently neutralizing CCXProcess' -Type Header
     Write-Rationale 'CCXProcess.exe is the Creative Cloud Experience host that serves in-app marketing and notifications. It persists after closing all Adobe apps and relaunches via scheduled tasks. The triple-layer approach (rename + IFEO + ACL) ensures it cannot be restored silently by Adobe updaters.'
@@ -2110,6 +2141,7 @@ function Get-StatusData {
         Registry   = @()
         Startup    = @()
         Watchdog   = @{ Installed = $false; State = 'NotInstalled' }
+        Verification = $null
     }
 
     foreach ($svcName in $Services) {
@@ -2170,8 +2202,10 @@ function Get-StatusData {
 
     $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
     $marker = '# --- Adobe Telemetry Block (Disable-AdobeTelemetry.ps1) ---'
+    $endMarker = '# --- End Adobe Telemetry Block ---'
     $hostsContent = Get-Content $hostsPath -Raw -ErrorAction SilentlyContinue
     $statusData.HostsFile.BlockPresent = ($hostsContent -and $hostsContent -match [regex]::Escape($marker))
+    $statusData.HostsFile.EndMarkerPresent = ($hostsContent -and $hostsContent -match [regex]::Escape($endMarker))
 
     $ifeoCheckExes = @('CCXProcess.exe', 'Creative Cloud Helper.exe', 'AdobeNotificationClient.exe')
     foreach ($ifeoExe in $ifeoCheckExes) {
@@ -2233,7 +2267,102 @@ function Get-StatusData {
         $statusData.Watchdog = @{ Installed = $true; State = "$($wdTask.State)" }
     }
 
+    $statusData.Verification = Get-PostApplyVerificationData -StatusData $statusData
+
     return $statusData
+}
+
+function Get-PostApplyVerificationData {
+    param($StatusData)
+
+    $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
+    $marker = '# --- Adobe Telemetry Block (Disable-AdobeTelemetry.ps1) ---'
+    $endMarker = '# --- End Adobe Telemetry Block ---'
+    $wamPattern = '#{1,2}\s*Adobe Creative Cloud WAM\s*-\s*Start\s*#{0,2}'
+    $detectDomain = 'detect-ccd.creativecloud.adobe.com'
+    $hostsContent = Get-Content $hostsPath -Raw -ErrorAction SilentlyContinue
+    $mappings = @(Get-HostsDomainMappings -HostsContent $hostsContent -Domain $detectDomain)
+    $effectiveMapping = if ($mappings.Count -gt 0) { $mappings[0].Address } else { $null }
+    $sinkholeAddresses = @('0.0.0.0', '::')
+
+    $fwRuleCount = 0
+    $dynamicKeywordStatus = @{ Available = $false; Count = 0; Patterns = @() }
+    if ($StatusData) {
+        $fwRuleCount = [int]$StatusData.Firewall.RuleCount
+        if ($StatusData.Firewall.DynamicKeywords) {
+            $dynamicKeywordStatus = $StatusData.Firewall.DynamicKeywords
+        }
+    } else {
+        $fwRules = Get-NetFirewallRule -DisplayName 'Block Adobe Telemetry*' -ErrorAction SilentlyContinue
+        $fwRuleCount = if ($fwRules) { @($fwRules).Count } else { 0 }
+        try {
+            $mpStatus = Get-MpComputerStatus -ErrorAction Stop
+            $mpPrefs = Get-MpPreference -ErrorAction Stop
+            if ($mpStatus.AMRunningMode -eq 'Normal' -and $mpPrefs.EnableNetworkProtection -ge 1) {
+                $dkAvailable = $null -ne (Get-Command New-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue)
+                $existingDk = @()
+                if ($dkAvailable) {
+                    $existingDk = @(Get-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Keyword -like '*adobe*' -or $_.Keyword -like '*demdex*' -or $_.Keyword -like '*adobedtm*' })
+                }
+                $dynamicKeywordStatus = @{
+                    Available = $dkAvailable
+                    Count     = $existingDk.Count
+                    Patterns  = @($existingDk | ForEach-Object { $_.Keyword })
+                }
+            }
+        } catch { }
+    }
+
+    $connections = @(Get-AdobeTelemetryConnections)
+    $failures = @()
+    $blockPresent = [bool]($hostsContent -and $hostsContent -match [regex]::Escape($marker))
+    $endBlockPresent = [bool]($hostsContent -and $hostsContent -match [regex]::Escape($endMarker))
+    $wamPresent = [bool]($hostsContent -and $hostsContent -match $wamPattern)
+    $detectSinkholed = ($sinkholeAddresses -contains $effectiveMapping)
+
+    if (-not $blockPresent -or -not $endBlockPresent) { $failures += 'Hosts block markers are missing' }
+    if ($wamPresent) { $failures += 'Adobe WAM hosts marker is still present' }
+    if (-not $detectSinkholed) { $failures += "$detectDomain effective mapping is not sinkholed" }
+    if ($fwRuleCount -lt 1) { $failures += 'No Adobe telemetry firewall block rules found' }
+    if ($dynamicKeywordStatus.Available -and [int]$dynamicKeywordStatus.Count -lt 1) { $failures += 'Dynamic Keywords are available but no Adobe FQDN keyword rules were found' }
+    if ($connections.Count -gt 0) { $failures += "$($connections.Count) Adobe-owned outbound connection(s) remain" }
+
+    return [ordered]@{
+        Passed = ($failures.Count -eq 0)
+        Failures = $failures
+        Hosts = [ordered]@{
+            MarkerPresent = $blockPresent
+            EndMarkerPresent = $endBlockPresent
+            WamMarkerPresent = $wamPresent
+            DetectCcdMapping = $effectiveMapping
+            DetectCcdSinkholed = $detectSinkholed
+            DetectCcdMappings = @($mappings)
+        }
+        Firewall = [ordered]@{
+            RuleCount = $fwRuleCount
+            DynamicKeywordsAvailable = [bool]$dynamicKeywordStatus.Available
+            DynamicKeywordCount = [int]$dynamicKeywordStatus.Count
+            DynamicKeywordPatterns = @($dynamicKeywordStatus.Patterns)
+        }
+        Connections = [ordered]@{
+            RemainingCount = $connections.Count
+        }
+    }
+}
+
+function Invoke-PostApplyVerification {
+    Write-Status 'Running post-apply tamper verification' -Type Header
+    $verification = Get-PostApplyVerificationData
+    if ($verification.Passed) {
+        Write-Status 'Post-apply verification passed' -Type Success
+        return
+    }
+
+    foreach ($failure in $verification.Failures) {
+        Write-Status "Post-apply verification failed: $failure" -Type Error
+        $script:Counters.VerificationFailures++
+    }
 }
 
 function Show-Status {
@@ -2363,6 +2492,7 @@ function Show-Summary {
         @{ Label = 'Telemetry IPs blocked'; Count = $c.FirewallIPsBlocked; Color = 'Green' }
         @{ Label = 'Domains sinkholed';    Count = $c.DomainsBlocked;    Color = 'Green' }
         @{ Label = 'Startup entries disabled'; Count = $c.StartupDisabled; Color = 'Green' }
+        @{ Label = 'Verification failures'; Count = $c.VerificationFailures; Color = 'Red' }
     )
 
     foreach ($item in $items) {
@@ -2750,6 +2880,7 @@ function Invoke-ProtectionPhases {
 
     Save-Manifest
     $script:Counters.ConnectionsAfter = @(Get-AdobeTelemetryConnections).Count
+    Invoke-PostApplyVerification
 }
 
 # Handle special modes before the standard flow
