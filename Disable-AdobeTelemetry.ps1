@@ -56,7 +56,7 @@
 
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.3.4
+    Version : 2.3.5
     Date    : 2026-06-27
 
     Exit codes:
@@ -128,7 +128,7 @@ if (-not $isAdmin) {
 
 $ErrorActionPreference = 'Continue'
 
-$script:DisplayVersion = 'v2.3.4'
+$script:DisplayVersion = 'v2.3.5'
 $script:Version = $script:DisplayVersion.TrimStart('v')
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
 $script:LogDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\logs'
@@ -1047,6 +1047,91 @@ function Set-AdobeRegistryPolicies {
     }
 }
 
+function Resolve-TelemetryDomainAddresses {
+    param([string]$Domain)
+    return [System.Net.Dns]::GetHostAddresses($Domain)
+}
+
+function Get-RoutePrintOutput {
+    param([string]$IPAddress)
+    if ($IPAddress) {
+        return route print $IPAddress 2>&1
+    }
+    return route print 2>&1
+}
+
+function Add-PersistentNullRoute {
+    param([string]$IPAddress)
+    & route -p add $IPAddress mask 255.255.255.255 0.0.0.0 2>&1 | Out-Null
+}
+
+function Remove-PersistentNullRoute {
+    param([string]$IPAddress)
+    & route delete $IPAddress 2>&1 | Out-Null
+}
+
+function Test-DynamicKeywordsAvailable {
+    try {
+        $mpStatus = Get-MpComputerStatus -ErrorAction Stop
+        $mpPrefs = Get-MpPreference -ErrorAction Stop
+        if ($mpStatus.AMRunningMode -eq 'Normal' -and $mpPrefs.EnableNetworkProtection -ge 1) {
+            return ($null -ne (Get-Command New-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue))
+        }
+    } catch { }
+    return $false
+}
+
+function Add-DynamicKeywordFirewallRules {
+    $fqdnPatterns = @(
+        '*.adobe.io'
+        '*.adobestats.io'
+        '*.demdex.net'
+        '*.adobedtm.com'
+        '*.adobegenuine.com'
+        '*.hstatic.io'
+    )
+
+    # Remove existing Dynamic Keyword rules from previous runs
+    $existingDk = Get-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue |
+        Where-Object { $_.Keyword -like '*adobe*' -or $_.Keyword -like '*demdex*' -or $_.Keyword -like '*adobedtm*' }
+    if ($existingDk) {
+        foreach ($dk in $existingDk) {
+            Remove-NetFirewallDynamicKeywordAddress -Id $dk.Id -ErrorAction SilentlyContinue
+        }
+    }
+
+    if ($DryRun) {
+        Write-Status "Would create $($fqdnPatterns.Count) FQDN wildcard firewall rules via Dynamic Keywords" -Type DryRun
+        return 0
+    }
+
+    $dkCreated = 0
+    foreach ($pattern in $fqdnPatterns) {
+        try {
+            $dkId = '{' + ([guid]::NewGuid()).ToString() + '}'
+            New-NetFirewallDynamicKeywordAddress -Id $dkId -Keyword $pattern -AutoResolve $true -ErrorAction Stop
+            New-NetFirewallRule -DisplayName "Block Adobe Telemetry - FQDN $pattern" `
+                -Direction Outbound `
+                -Action Block `
+                -RemoteDynamicKeywordAddresses $dkId `
+                -Profile Any `
+                -Enabled True `
+                -Description "Blocks outbound to $pattern via FQDN Dynamic Keyword." |
+                Out-Null
+            Add-ManifestAction -Phase 'Firewall' -Action 'AddFirewallRule' -Details @{
+                DisplayName = "Block Adobe Telemetry - FQDN $pattern"
+            }
+            Add-ManifestAction -Phase 'Firewall' -Action 'AddDynamicKeyword' -Details @{
+                Id = $dkId; Keyword = $pattern
+            }
+            $dkCreated++
+        } catch {
+            Write-Status "Dynamic Keyword failed for $pattern : $($_.Exception.Message)" -Type Warning
+        }
+    }
+    return $dkCreated
+}
+
 function Block-AdobeFirewall {
     Write-Status 'Creating firewall rules to block Adobe telemetry' -Type Header
     Write-Rationale 'DNS-level blocking (hosts file) can be bypassed by hardcoded IPs or DNS-over-HTTPS. Firewall rules block by resolved IP (TCP+UDP) and by program path as a defense-in-depth layer. Persistent null routes add a third layer that survives firewall resets.'
@@ -1068,7 +1153,7 @@ function Block-AdobeFirewall {
     $domainIPMap = @{}
     foreach ($domain in $TelemetryDomains) {
         try {
-            $allAddrs = [System.Net.Dns]::GetHostAddresses($domain)
+            $allAddrs = Resolve-TelemetryDomainAddresses -Domain $domain
             $v4 = $allAddrs | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -ExpandProperty IPAddressToString
             $v6 = $allAddrs | Where-Object { $_.AddressFamily -eq 'InterNetworkV6' } | Select-Object -ExpandProperty IPAddressToString
             $combined = @()
@@ -1191,12 +1276,12 @@ function Block-AdobeFirewall {
     if ($resolvedIPv4.Count -gt 0) {
         $routesAdded = 0
         foreach ($ip in $resolvedIPv4) {
-            $existing = route print $ip 2>&1 | Select-String $ip -ErrorAction SilentlyContinue
+            $existing = Get-RoutePrintOutput -IPAddress $ip | Select-String $ip -ErrorAction SilentlyContinue
             if ($existing) { continue }
             if ($DryRun) {
                 $routesAdded++
             } else {
-                & route -p add $ip mask 255.255.255.255 0.0.0.0 2>&1 | Out-Null
+                Add-PersistentNullRoute -IPAddress $ip
                 Add-ManifestAction -Phase 'Firewall' -Action 'AddRoute' -Details @{
                     IPAddress = $ip
                 }
@@ -1213,65 +1298,12 @@ function Block-AdobeFirewall {
     }
 
     # FQDN wildcard firewall rules via Dynamic Keywords (Windows 10 20H2+, requires Defender + Network Protection)
-    $dynamicKeywordsAvailable = $false
-    try {
-        $mpStatus = Get-MpComputerStatus -ErrorAction Stop
-        $mpPrefs = Get-MpPreference -ErrorAction Stop
-        if ($mpStatus.AMRunningMode -eq 'Normal' -and $mpPrefs.EnableNetworkProtection -ge 1) {
-            $dynamicKeywordsAvailable = $null -ne (Get-Command New-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue)
-        }
-    } catch { }
-
+    $dynamicKeywordsAvailable = Test-DynamicKeywordsAvailable
     if ($dynamicKeywordsAvailable) {
-        $fqdnPatterns = @(
-            '*.adobe.io'
-            '*.adobestats.io'
-            '*.demdex.net'
-            '*.adobedtm.com'
-            '*.adobegenuine.com'
-            '*.hstatic.io'
-        )
-
-        # Remove existing Dynamic Keyword rules from previous runs
-        $existingDk = Get-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue |
-            Where-Object { $_.Keyword -like '*adobe*' -or $_.Keyword -like '*demdex*' -or $_.Keyword -like '*adobedtm*' }
-        if ($existingDk) {
-            foreach ($dk in $existingDk) {
-                Remove-NetFirewallDynamicKeywordAddress -Id $dk.Id -ErrorAction SilentlyContinue
-            }
-        }
-
-        if ($DryRun) {
-            Write-Status "Would create $($fqdnPatterns.Count) FQDN wildcard firewall rules via Dynamic Keywords" -Type DryRun
-        } else {
-            $dkCreated = 0
-            foreach ($pattern in $fqdnPatterns) {
-                try {
-                    $dkId = '{' + (New-Guid).ToString() + '}'
-                    New-NetFirewallDynamicKeywordAddress -Id $dkId -Keyword $pattern -AutoResolve $true -ErrorAction Stop
-                    New-NetFirewallRule -DisplayName "Block Adobe Telemetry - FQDN $pattern" `
-                        -Direction Outbound `
-                        -Action Block `
-                        -RemoteDynamicKeywordAddresses $dkId `
-                        -Profile Any `
-                        -Enabled True `
-                        -Description "Blocks outbound to $pattern via FQDN Dynamic Keyword." |
-                        Out-Null
-                    Add-ManifestAction -Phase 'Firewall' -Action 'AddFirewallRule' -Details @{
-                        DisplayName = "Block Adobe Telemetry - FQDN $pattern"
-                    }
-                    Add-ManifestAction -Phase 'Firewall' -Action 'AddDynamicKeyword' -Details @{
-                        Id = $dkId; Keyword = $pattern
-                    }
-                    $dkCreated++
-                } catch {
-                    Write-Status "Dynamic Keyword failed for $pattern : $($_.Exception.Message)" -Type Warning
-                }
-            }
-            if ($dkCreated -gt 0) {
-                Write-Status "Created $dkCreated FQDN wildcard firewall rules (handles subdomain rotation automatically)" -Type Success
-                $script:Counters.FirewallRulesAdded += $dkCreated
-            }
+        $dkCreated = Add-DynamicKeywordFirewallRules
+        if ($dkCreated -gt 0) {
+            Write-Status "Created $dkCreated FQDN wildcard firewall rules (handles subdomain rotation automatically)" -Type Success
+            $script:Counters.FirewallRulesAdded += $dkCreated
         }
     } else {
         Write-Status 'Dynamic Keywords not available (requires Defender + Network Protection) — using IP-based rules only' -Type Info
@@ -1911,7 +1943,7 @@ function Invoke-ManifestUndo {
                 'AddRoute' {
                     $ip = Get-ManifestDetail $details 'IPAddress'
                     if ($ip) {
-                        & route delete $ip 2>&1 | Out-Null
+                        Remove-PersistentNullRoute -IPAddress $ip
                         Write-Status "Removed persistent route: $ip" -Type Success
                     }
                 }
@@ -2042,16 +2074,16 @@ function Invoke-Undo {
 
     # 3c. Remove persistent null routes for telemetry IPs
     Write-Status 'Removing persistent null routes' -Type Header
-    $routeOutput = route print 2>&1
+    $routeOutput = Get-RoutePrintOutput
     $routesRemoved = 0
     foreach ($domain in $TelemetryDomains) {
         try {
             $ips = [System.Net.Dns]::GetHostAddresses($domain) |
                    Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
-                   Select-Object -ExpandProperty IPAddressToString
+                Select-Object -ExpandProperty IPAddressToString
             foreach ($ip in $ips) {
                 if ($routeOutput -match [regex]::Escape($ip)) {
-                    & route delete $ip 2>&1 | Out-Null
+                    Remove-PersistentNullRoute -IPAddress $ip
                     $routesRemoved++
                 }
             }
@@ -2826,8 +2858,7 @@ function Install-Watchdog {
     } catch { }
 
     # Wrap the scheduled action with a path check so failures are visible in Event Viewer.
-    $quote = [char]39
-    $escapedScriptPath = $scriptFullPath.Replace($quote, "$quote$quote")
+    $escapedScriptPath = $scriptFullPath.Replace("'", "''")
     $watchdogCommandTemplate = 'if (-not (Test-Path -LiteralPath ''{0}'')) {{ try {{ Write-EventLog -LogName Application -Source ''Disable-AdobeTelemetry'' -EventId 1001 -EntryType Warning -Message ''Watchdog: script not found at {0}'' }} catch {{ }}; exit 1 }}; & ''{0}'' -Skip Kill'
     $watchdogCommand = $watchdogCommandTemplate -f $escapedScriptPath
     $encodedWatchdogCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($watchdogCommand))

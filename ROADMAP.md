@@ -6,13 +6,6 @@ No actionable items remaining. See Roadmap_Blocked.md for items awaiting credent
 
 ## Research-Driven Additions
 
-- [ ] P1 - Add mocked behavioral tests for firewall, routes, watchdog, and undo
-  Why: Current tests lean on static source assertions for Windows-mutating operations; mocked command assertions catch argument regressions without touching the host.
-  Evidence: `Tests/Disable-AdobeTelemetry.Tests.ps1:356`, `Tests/Disable-AdobeTelemetry.Tests.ps1:378`; Pester mocking docs.
-  Touches: `Tests/Disable-AdobeTelemetry.Tests.ps1`, `Disable-AdobeTelemetry.ps1`
-  Acceptance: Pester mocks validate `New-NetFirewallRule`, `Remove-NetFirewallRule`, Dynamic Keyword creation/removal, `route.exe` add/delete, watchdog register/update/remove, and manifest undo order.
-  Complexity: M
-
 - [ ] P1 - Expand JSON status to full policy convergence
   Why: Fleet operators need `-StatusOnly -OutputFormat JSON` to prove every registry policy written by apply is present and correct.
   Evidence: `Disable-AdobeTelemetry.ps1:836`, `Disable-AdobeTelemetry.ps1:1534`, `Disable-AdobeTelemetry.ps1:2188`; Adobe Acrobat ETK and DISA STIG references.
