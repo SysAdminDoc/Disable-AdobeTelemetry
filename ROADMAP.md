@@ -6,13 +6,6 @@ No actionable items remaining. See Roadmap_Blocked.md for items awaiting credent
 
 ## Research-Driven Additions
 
-- [ ] P1 - Make upstream domain merges auditable and cacheable
-  Why: Live upstream blocklist input is useful but needs provenance, diff visibility, and last-good fallback for repeatable fleet runs.
-  Evidence: `Disable-AdobeTelemetry.ps1:421`; a-dove-is-dumb and Ruddernation blocklist update patterns.
-  Touches: `Disable-AdobeTelemetry.ps1`, `Tests/Disable-AdobeTelemetry.Tests.ps1`, `README.md`
-  Acceptance: merge records upstream URL, fetch timestamp, added domains, safelisted domains, rejected malformed entries, and final count to JSONL; invalid fetches use a last-good cache when present; dry run shows the same diff without mutating domain state.
-  Complexity: M
-
 - [ ] P1 - Add mocked behavioral tests for firewall, routes, watchdog, and undo
   Why: Current tests lean on static source assertions for Windows-mutating operations; mocked command assertions catch argument regressions without touching the host.
   Evidence: `Tests/Disable-AdobeTelemetry.Tests.ps1:356`, `Tests/Disable-AdobeTelemetry.Tests.ps1:378`; Pester mocking docs.

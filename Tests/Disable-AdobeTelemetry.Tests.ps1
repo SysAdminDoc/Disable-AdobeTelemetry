@@ -430,7 +430,7 @@ Describe 'DISA STIG Hardening' {
 Describe 'Upstream Domain Merge Filtering' {
     It 'Merge-UpstreamDomains function filters safelist domains' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
-        $scriptContent | Should -Match 'DomainSafelist\s+-notcontains'
+        $scriptContent | Should -Match 'DomainSafelist\s+-contains\s+\$candidate'
     }
 
     It 'safelist includes critical authentication domains' {
@@ -443,6 +443,38 @@ Describe 'Upstream Domain Merge Filtering' {
         $safelistDomains | Should -Contain 'auth.services.adobe.com'
         $safelistDomains | Should -Contain 'ccmdls.adobe.com'
         $safelistDomains | Should -Contain 'ardownload2.adobe.com'
+    }
+
+    It 'builds auditable upstream merge diffs with safelist and malformed rejects' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $mergeResultFunc = $funcDefs | Where-Object { $_.Name -eq 'Get-UpstreamDomainMergeResult' }
+        $mergeResultFunc | Should -Not -BeNullOrEmpty
+
+        Invoke-Expression $mergeResultFunc.Extent.Text
+        $script:UpstreamUrl = 'https://example.invalid/list.txt'
+        $script:DomainSafelist = @('auth.services.adobe.com')
+        $raw = @'
+0.0.0.0 new-telemetry.adobe.io
+auth.services.adobe.com
+not a domain
+existing.adobe.io
+'@
+
+        $result = Get-UpstreamDomainMergeResult -RawContent $raw -ExistingDomains @('existing.adobe.io') -Source 'Network'
+        $result.AddedDomains | Should -Contain 'new-telemetry.adobe.io'
+        $result.AddedDomains | Should -Not -Contain 'existing.adobe.io'
+        $result.SafelistedDomains | Should -Contain 'auth.services.adobe.com'
+        $result.RejectedMalformedEntries | Should -Contain 'not a domain'
+        $result.FinalCount | Should -Be 2
+    }
+
+    It 'records upstream merge audit and cache plumbing' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'UpstreamCachePath'
+        $scriptContent | Should -Match 'Write-JsonLogEvent -Event ''UpstreamDomainMerge'''
+        $scriptContent | Should -Match 'Get-UpstreamDomainCacheResult'
+        $scriptContent | Should -Match 'Would merge'
+        $scriptContent | Should -Match 'Save-UpstreamDomainCache'
     }
 }
 
@@ -543,7 +575,7 @@ Describe 'Negative / Edge-Case Tests' {
 
     It 'safelist domains never appear in any telemetry tier' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
-        $scriptContent | Should -Match 'DomainSafelist\s+-notcontains'
+        $scriptContent | Should -Match 'DomainSafelist\s+-contains\s+\$candidate'
         $safelistMatch = [regex]::Match($scriptContent, '\$script:DomainSafelist\s*=\s*@\(([^)]+)\)')
         $safelistDomains = $safelistMatch.Groups[1].Value -split "`n" |
             ForEach-Object { $_.Trim().Trim("'").Trim('"') } |
