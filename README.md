@@ -2,7 +2,7 @@
 
 # Disable-AdobeTelemetry
 
-![Version](https://img.shields.io/badge/version-v2.3.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-PowerShell-lightgrey)
+![Version](https://img.shields.io/badge/version-v2.3.2-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-PowerShell-lightgrey)
 
 A PowerShell script that comprehensively disables Adobe's background telemetry, analytics, in-app marketing (GrowthSDK), and persistent background processes that run even after closing Adobe applications.
 
@@ -110,6 +110,10 @@ A WPF companion GUI with Catppuccin Mocha dark theme, profile selection, dry run
 # Clean launch: kill telemetry, run Photoshop, re-kill on exit (no permanent changes)
 .\Disable-AdobeTelemetry.ps1 -Launcher Photoshop
 
+# Export or import a validated fleet profile
+.\Disable-AdobeTelemetry.ps1 -ExportProfile .\standard-profile.json
+.\Disable-AdobeTelemetry.ps1 -ImportProfile .\standard-profile.json
+
 # Check current status of all protections
 .\Disable-AdobeTelemetry.ps1 -StatusOnly
 
@@ -121,6 +125,8 @@ A WPF companion GUI with Catppuccin Mocha dark theme, profile selection, dry run
 ```
 
 The script executes immediately without confirmation prompts and recommends a reboot at completion.
+
+Imported profiles fail closed before any protection phase runs. A profile must contain `SchemaVersion`, `Version`, `Profile`, and `Domains`; invalid JSON, unsupported schema versions, invalid profile tiers, invalid phase names, or malformed domains exit with code `2`.
 
 ### Machine-Readable Output
 

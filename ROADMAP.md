@@ -6,13 +6,6 @@ No actionable items remaining. See Roadmap_Blocked.md for items awaiting credent
 
 ## Research-Driven Additions
 
-- [ ] P0 - Fail closed on invalid imported profiles
-  Why: A malformed or partial profile can reach the apply flow after a misleading load message, which is unsafe for fleet automation.
-  Evidence: `Disable-AdobeTelemetry.ps1:2628`; O&O ShutUp10++ and Windows privacy tools rely on importable settings as a trust boundary.
-  Touches: `Disable-AdobeTelemetry.ps1`, `Tests/Disable-AdobeTelemetry.Tests.ps1`, `README.md`
-  Acceptance: `-ImportProfile` rejects malformed JSON, missing schema/version fields, invalid profile tiers, invalid phase names, and invalid domains with a non-zero exit before any phase runs; Pester covers valid and invalid imports.
-  Complexity: S
-
 - [ ] P0 - Add post-apply tamper verification
   Why: Adobe CC WAM hosts rewriting is an active countermeasure, and successful writes should be verified after apply rather than assumed.
   Evidence: `Disable-AdobeTelemetry.ps1:1158`, `Disable-AdobeTelemetry.ps1:2098`; PiunikaWeb/Michael Tsai/OSNews/Lilting WAM reports.
