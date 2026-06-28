@@ -6,13 +6,6 @@ No actionable items remaining. See Roadmap_Blocked.md for items awaiting credent
 
 ## Research-Driven Additions
 
-- [ ] P0 - Add post-apply tamper verification
-  Why: Adobe CC WAM hosts rewriting is an active countermeasure, and successful writes should be verified after apply rather than assumed.
-  Evidence: `Disable-AdobeTelemetry.ps1:1158`, `Disable-AdobeTelemetry.ps1:2098`; PiunikaWeb/Michael Tsai/OSNews/Lilting WAM reports.
-  Touches: `Disable-AdobeTelemetry.ps1`, `Tests/Disable-AdobeTelemetry.Tests.ps1`, `README.md`
-  Acceptance: apply runs a verification pass that checks hosts marker presence, WAM marker absence, effective `detect-ccd.creativecloud.adobe.com` mapping, firewall rule count, Dynamic Keyword presence when available, and remaining Adobe-owned outbound connections; failures increment error count and appear in text, JSONL, and `-StatusOnly -OutputFormat JSON`.
-  Complexity: M
-
 - [ ] P1 - Make upstream domain merges auditable and cacheable
   Why: Live upstream blocklist input is useful but needs provenance, diff visibility, and last-good fallback for repeatable fleet runs.
   Evidence: `Disable-AdobeTelemetry.ps1:421`; a-dove-is-dumb and Ruddernation blocklist update patterns.

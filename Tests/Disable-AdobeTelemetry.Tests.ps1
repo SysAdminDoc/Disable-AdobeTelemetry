@@ -265,6 +265,26 @@ Describe 'Hosts File Markers' {
         # Verify the regex uses #{1,2} to match both old and new formats
         $scriptContent | Should -Match '#\{1,2\}'
     }
+
+    It 'reads the first effective hosts mapping for detect-ccd' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $hostsMappingFunc = $funcDefs | Where-Object { $_.Name -eq 'Get-HostsDomainMappings' }
+        $hostsMappingFunc | Should -Not -BeNullOrEmpty
+
+        Invoke-Expression $hostsMappingFunc.Extent.Text
+        $hostsContent = @'
+166.117.29.222 detect-ccd.creativecloud.adobe.com
+# --- Adobe Telemetry Block (Disable-AdobeTelemetry.ps1) ---
+0.0.0.0 detect-ccd.creativecloud.adobe.com
+:: detect-ccd.creativecloud.adobe.com
+# --- End Adobe Telemetry Block ---
+'@
+
+        $mappings = @(Get-HostsDomainMappings -HostsContent $hostsContent)
+        $mappings.Count | Should -Be 3
+        $mappings[0].Address | Should -Be '166.117.29.222'
+        $mappings[1].Address | Should -Be '0.0.0.0'
+    }
 }
 
 Describe 'Exit Codes and OutputFormat' {
@@ -658,5 +678,8 @@ Describe 'Negative / Edge-Case Tests' {
         $funcBody | Should -Match 'Startup'
         $funcBody | Should -Match 'Watchdog'
         $funcBody | Should -Match 'DynamicKeywords'
+        $funcBody | Should -Match 'Verification'
+        $scriptContent | Should -Match 'Invoke-PostApplyVerification'
+        $scriptContent | Should -Match 'VerificationFailures'
     }
 }
