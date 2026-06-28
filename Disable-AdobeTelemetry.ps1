@@ -56,7 +56,7 @@
 
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.3.3
+    Version : 2.3.4
     Date    : 2026-06-27
 
     Exit codes:
@@ -128,7 +128,7 @@ if (-not $isAdmin) {
 
 $ErrorActionPreference = 'Continue'
 
-$script:DisplayVersion = 'v2.3.3'
+$script:DisplayVersion = 'v2.3.4'
 $script:Version = $script:DisplayVersion.TrimStart('v')
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
 $script:LogDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\logs'
@@ -138,6 +138,7 @@ $script:JsonLogFile = Join-Path $script:LogDir ("Disable-AdobeTelemetry-{0}.json
 # JSON manifest recording every action so -Undo can be fully deterministic
 $script:ManifestDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry'
 $script:ManifestPath = Join-Path $script:ManifestDir 'undo-manifest.json'
+$script:UpstreamCachePath = Join-Path $script:ManifestDir 'upstream-domains-cache.json'
 $script:ManifestActions = @()
 
 function Initialize-AppDataDirectory {
@@ -421,24 +422,126 @@ $script:DomainSafelist = @(
 
 # Optionally merge upstream domains from a-dove-is-dumb community list
 $script:UpstreamUrl = 'https://a.dove.isdumb.one/list.txt'
+function Get-UpstreamDomainMergeResult {
+    param(
+        [string]$RawContent,
+        [string[]]$ExistingDomains,
+        [string]$Source = 'Network',
+        [datetime]$FetchedAt = (Get-Date)
+    )
+
+    $accepted = @()
+    $safelisted = @()
+    $rejected = @()
+    $existingSet = @{}
+    foreach ($domain in @($ExistingDomains)) {
+        if ($domain) { $existingSet[[string]$domain.ToLowerInvariant()] = $true }
+    }
+
+    foreach ($line in ($RawContent -split "`r?`n")) {
+        $trimmed = $line.Trim()
+        if (-not $trimmed -or $trimmed -match '^\s*#') { continue }
+        $trimmed = ($trimmed -split '\s+#', 2)[0].Trim()
+        $parts = $trimmed -split '\s+'
+        $candidate = if ($parts.Count -gt 1 -and $parts[0] -match '^(0\.0\.0\.0|127\.0\.0\.1|::)$') { $parts[1] } else { $parts[0] }
+        $candidate = $candidate.Trim().Trim('|').Trim('^').ToLowerInvariant()
+
+        if ($candidate -notmatch '^[a-z0-9]([a-z0-9\-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]*[a-z0-9])?)+$') {
+            $rejected += $trimmed
+            continue
+        }
+
+        if ($script:DomainSafelist -contains $candidate) {
+            $safelisted += $candidate
+            continue
+        }
+
+        $accepted += $candidate
+    }
+
+    $accepted = @($accepted | Sort-Object -Unique)
+    $safelisted = @($safelisted | Sort-Object -Unique)
+    $rejected = @($rejected | Sort-Object -Unique)
+    $added = @($accepted | Where-Object { -not $existingSet.ContainsKey($_) })
+    $finalDomains = @($ExistingDomains + $accepted | Sort-Object -Unique)
+
+    return [ordered]@{
+        Url = $script:UpstreamUrl
+        Source = $Source
+        FetchedAt = $FetchedAt.ToString('o')
+        AcceptedDomains = $accepted
+        AddedDomains = $added
+        SafelistedDomains = $safelisted
+        RejectedMalformedEntries = $rejected
+        FinalCount = $finalDomains.Count
+    }
+}
+
+function Save-UpstreamDomainCache {
+    param($MergeResult)
+    if ($DryRun -or -not $MergeResult -or $MergeResult.Source -ne 'Network') { return }
+    Initialize-AppDataDirectory
+    [ordered]@{
+        Url = $MergeResult.Url
+        FetchedAt = $MergeResult.FetchedAt
+        Domains = @($MergeResult.AcceptedDomains)
+    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $script:UpstreamCachePath -Encoding UTF8 -Force
+}
+
+function Get-UpstreamDomainCacheResult {
+    if (-not (Test-Path -LiteralPath $script:UpstreamCachePath)) { return $null }
+    try {
+        $cache = Get-Content -LiteralPath $script:UpstreamCachePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $domains = @($cache.Domains) | Where-Object { $_ }
+        if ($domains.Count -eq 0) { return $null }
+        $raw = ($domains -join "`n")
+        $fetchedAt = if ($cache.FetchedAt) { [datetime]$cache.FetchedAt } else { Get-Date }
+        return Get-UpstreamDomainMergeResult -RawContent $raw -ExistingDomains $script:TelemetryDomains -Source 'Cache' -FetchedAt $fetchedAt
+    } catch {
+        return $null
+    }
+}
+
+function Write-UpstreamMergeAudit {
+    param($MergeResult)
+    if (-not $MergeResult) { return }
+
+    Write-JsonLogEvent -Event 'UpstreamDomainMerge' -Data ([ordered]@{
+        url = $MergeResult.Url
+        source = $MergeResult.Source
+        fetchedAt = $MergeResult.FetchedAt
+        addedDomains = @($MergeResult.AddedDomains)
+        safelistedDomains = @($MergeResult.SafelistedDomains)
+        rejectedMalformedEntries = @($MergeResult.RejectedMalformedEntries)
+        finalCount = $MergeResult.FinalCount
+    })
+}
+
 function Merge-UpstreamDomains {
+    $mergeResult = $null
     try {
         $raw = (Invoke-WebRequest -Uri $script:UpstreamUrl -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop).Content
-        $upstream = $raw -split "`n" |
-            ForEach-Object { $_.Trim() } |
-            Where-Object { $_ -and $_ -notmatch '^\s*#' -and $_ -match '\.' }
-        $filtered = $upstream | Where-Object { $script:DomainSafelist -notcontains $_ }
-        $removed = $upstream.Count - $filtered.Count
-        if ($filtered.Count -gt 0) {
-            $before = $script:TelemetryDomains.Count
-            $script:TelemetryDomains = ($script:TelemetryDomains + $filtered) | Sort-Object -Unique
-            $added = $script:TelemetryDomains.Count - $before
-            $msg = "Merged $added upstream domains ($($script:TelemetryDomains.Count) total)"
-            if ($removed -gt 0) { $msg += " ($removed safelisted domains filtered)" }
-            Write-Status $msg -Type Success
-        }
+        $mergeResult = Get-UpstreamDomainMergeResult -RawContent $raw -ExistingDomains $script:TelemetryDomains -Source 'Network'
+        Save-UpstreamDomainCache -MergeResult $mergeResult
     } catch {
-        Write-Status "Could not fetch upstream domain list (using built-in list)" -Type Warning
+        $mergeResult = Get-UpstreamDomainCacheResult
+        if ($mergeResult) {
+            Write-Status "Could not fetch upstream domain list; using last-good cache from $($mergeResult.FetchedAt)" -Type Warning
+        } else {
+            Write-Status 'Could not fetch upstream domain list and no last-good cache is available; using built-in list' -Type Warning
+            return
+        }
+    }
+
+    Write-UpstreamMergeAudit -MergeResult $mergeResult
+    if ($DryRun) {
+        Write-Status "Would merge $($mergeResult.AddedDomains.Count) upstream domains from $($mergeResult.Source) ($($mergeResult.FinalCount) total, $($mergeResult.SafelistedDomains.Count) safelisted, $($mergeResult.RejectedMalformedEntries.Count) rejected)" -Type DryRun
+        return
+    }
+
+    if ($mergeResult.AcceptedDomains.Count -gt 0) {
+        $script:TelemetryDomains = ($script:TelemetryDomains + $mergeResult.AcceptedDomains) | Sort-Object -Unique
+        Write-Status "Merged $($mergeResult.AddedDomains.Count) upstream domains from $($mergeResult.Source) ($($script:TelemetryDomains.Count) total, $($mergeResult.SafelistedDomains.Count) safelisted, $($mergeResult.RejectedMalformedEntries.Count) rejected)" -Type Success
     }
 }
 
@@ -515,6 +618,25 @@ function Write-Status {
         'Info'    { Write-Host "  [..] $Message" -ForegroundColor Gray }
         'DryRun'  { Write-Host "  [>>] $Message" -ForegroundColor Magenta }
     }
+}
+
+function Write-JsonLogEvent {
+    param(
+        [Parameter(Mandatory=$true)][string]$Event,
+        $Data = @{}
+    )
+    Initialize-AppDataDirectory
+    $jsonEntry = [ordered]@{
+        timestamp = (Get-Date -Format 'o')
+        level     = 'Info'
+        event     = $Event
+        profile   = $Profile
+        dryRun    = [bool]$DryRun
+        undo      = [bool]$Undo
+        status    = [bool]$StatusOnly
+        data      = $Data
+    }
+    ($jsonEntry | ConvertTo-Json -Depth 8 -Compress) | Add-Content -Path $script:JsonLogFile -Encoding UTF8 -ErrorAction SilentlyContinue
 }
 
 function Write-Rationale {

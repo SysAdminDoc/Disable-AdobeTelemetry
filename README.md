@@ -2,7 +2,7 @@
 
 # Disable-AdobeTelemetry
 
-![Version](https://img.shields.io/badge/version-v2.3.3-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-PowerShell-lightgrey)
+![Version](https://img.shields.io/badge/version-v2.3.4-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-PowerShell-lightgrey)
 
 A PowerShell script that comprehensively disables Adobe's background telemetry, analytics, in-app marketing (GrowthSDK), and persistent background processes that run even after closing Adobe applications.
 
@@ -129,6 +129,8 @@ The script executes immediately without confirmation prompts and recommends a re
 Imported profiles fail closed before any protection phase runs. A profile must contain `SchemaVersion`, `Version`, `Profile`, and `Domains`; invalid JSON, unsupported schema versions, invalid profile tiers, invalid phase names, or malformed domains exit with code `2`.
 
 After apply, the script verifies that the hosts block remains present, Adobe WAM hosts markers are absent, `detect-ccd.creativecloud.adobe.com` resolves to a sinkhole entry, firewall block rules exist, Dynamic Keyword rules exist when supported, and no Adobe-owned outbound connections remain. Verification failures are written to console output, JSONL logs, and `-StatusOnly -OutputFormat JSON`.
+
+Upstream domain merges are audited in the JSONL log with source URL, fetch timestamp, added domains, safelisted domains, rejected malformed entries, and final domain count. Successful live fetches update a last-good cache under `%APPDATA%\Disable-AdobeTelemetry`; failed fetches use that cache when available. `-DryRun` reports the same merge diff without mutating the active domain list or cache.
 
 ### Machine-Readable Output
 
