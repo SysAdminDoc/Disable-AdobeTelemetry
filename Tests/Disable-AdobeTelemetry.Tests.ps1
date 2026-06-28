@@ -478,6 +478,207 @@ existing.adobe.io
     }
 }
 
+Describe 'Mocked Behavioral Windows Operations' {
+    It 'creates firewall, dynamic keyword, and persistent route actions without touching Windows' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $blockFirewall = $funcDefs | Where-Object { $_.Name -eq 'Block-AdobeFirewall' }
+        $addManifest = $funcDefs | Where-Object { $_.Name -eq 'Add-ManifestAction' }
+        $resolveDomain = $funcDefs | Where-Object { $_.Name -eq 'Resolve-TelemetryDomainAddresses' }
+        $getRoutePrint = $funcDefs | Where-Object { $_.Name -eq 'Get-RoutePrintOutput' }
+        $addRoute = $funcDefs | Where-Object { $_.Name -eq 'Add-PersistentNullRoute' }
+        $testDynamicKeywords = $funcDefs | Where-Object { $_.Name -eq 'Test-DynamicKeywordsAvailable' }
+        $addDynamicKeywords = $funcDefs | Where-Object { $_.Name -eq 'Add-DynamicKeywordFirewallRules' }
+        $blockFirewall | Should -Not -BeNullOrEmpty
+        $addManifest | Should -Not -BeNullOrEmpty
+        $resolveDomain | Should -Not -BeNullOrEmpty
+        $getRoutePrint | Should -Not -BeNullOrEmpty
+        $addRoute | Should -Not -BeNullOrEmpty
+        $testDynamicKeywords | Should -Not -BeNullOrEmpty
+        $addDynamicKeywords | Should -Not -BeNullOrEmpty
+
+        $TelemetryDomains = @('telemetry.example.test')
+        $script:AdobeInstallPaths = @()
+        $script:LogFile = Join-Path $env:TEMP "DisableAdobeTelemetryFirewallTest_$(Get-Random).log"
+        $script:Counters = @{
+            FirewallRulesAdded = 0
+            FirewallIPsBlocked = 0
+        }
+        $script:ManifestActions = @()
+        $DryRun = $false
+
+        function Write-Status { param([string]$Message, [string]$Type = 'Info') }
+        function Write-Rationale { param([string]$Message) }
+        function Get-NetFirewallRule { param([string]$DisplayName) }
+        function Remove-NetFirewallRule { param([Parameter(ValueFromPipeline=$true)]$InputObject) process { } }
+        function New-NetFirewallRule {
+            param(
+                [string]$DisplayName,
+                [string]$Direction,
+                [string]$Action,
+                [string[]]$RemoteAddress,
+                [string]$Protocol,
+                [string]$Profile,
+                $Enabled,
+                [string]$Description,
+                [string]$Program,
+                [string]$RemoteDynamicKeywordAddresses
+            )
+        }
+        function Get-MpComputerStatus { }
+        function Get-MpPreference { }
+        function Get-NetFirewallDynamicKeywordAddress { param($ErrorAction) }
+        function Remove-NetFirewallDynamicKeywordAddress { param([string]$Id, $ErrorAction) }
+        function New-NetFirewallDynamicKeywordAddress { param([string]$Id, [string]$Keyword, [bool]$AutoResolve, $ErrorAction) }
+
+        Invoke-Expression $addManifest.Extent.Text
+        Invoke-Expression $resolveDomain.Extent.Text
+        Invoke-Expression $getRoutePrint.Extent.Text
+        Invoke-Expression $addRoute.Extent.Text
+        Invoke-Expression $testDynamicKeywords.Extent.Text
+        Invoke-Expression $addDynamicKeywords.Extent.Text
+        Invoke-Expression $blockFirewall.Extent.Text
+        Set-Item -Path function:Test-DynamicKeywordsAvailable -Value { return $false } -Force
+
+        Mock Resolve-TelemetryDomainAddresses { @([System.Net.IPAddress]::Parse('203.0.113.10'), [System.Net.IPAddress]::Parse('2001:db8::10')) }
+        Mock Get-RoutePrintOutput { @() }
+        Mock Add-PersistentNullRoute { }
+        Mock Get-NetFirewallRule { @([pscustomobject]@{ DisplayName = 'Block Adobe Telemetry - Old' }) }
+        Mock Remove-NetFirewallRule { }
+        Mock New-NetFirewallRule { }
+        Mock Get-NetFirewallDynamicKeywordAddress { @([pscustomobject]@{ Id = '{old-dk}'; Keyword = '*.adobe.io' }) }
+        Mock Remove-NetFirewallDynamicKeywordAddress { }
+        Mock New-NetFirewallDynamicKeywordAddress { }
+        try {
+            Block-AdobeFirewall
+            $dkCreated = Add-DynamicKeywordFirewallRules
+        } finally {
+            Remove-Item -Path $script:LogFile -Force -ErrorAction SilentlyContinue
+        }
+
+        $dkCreated | Should -Be 6
+        Assert-MockCalled Remove-NetFirewallRule -Times 1 -Exactly
+        Assert-MockCalled New-NetFirewallRule -ParameterFilter { $DisplayName -eq 'Block Adobe Telemetry - Outbound IPs (TCP)' -and $Protocol -eq 'TCP' -and $Action -eq 'Block' } -Times 1 -Exactly
+        Assert-MockCalled New-NetFirewallRule -ParameterFilter { $DisplayName -eq 'Block Adobe Telemetry - Outbound IPs (UDP)' -and $Protocol -eq 'UDP' -and $Action -eq 'Block' } -Times 1 -Exactly
+        Assert-MockCalled Get-RoutePrintOutput -ParameterFilter { $IPAddress -eq '203.0.113.10' } -Times 1 -Exactly
+        Assert-MockCalled Add-PersistentNullRoute -ParameterFilter { $IPAddress -eq '203.0.113.10' } -Times 1 -Exactly
+        Assert-MockCalled Remove-NetFirewallDynamicKeywordAddress -ParameterFilter { $Id -eq '{old-dk}' } -Times 1 -Exactly
+        Assert-MockCalled New-NetFirewallDynamicKeywordAddress -Times 6 -Exactly
+        Assert-MockCalled New-NetFirewallRule -ParameterFilter { $DisplayName -like 'Block Adobe Telemetry - FQDN *' -and $Action -eq 'Block' } -Times 6 -Exactly
+
+        ($script:ManifestActions | Where-Object { $_.Action -eq 'AddFirewallRule' }).Count | Should -Be 8
+        ($script:ManifestActions | Where-Object { $_.Action -eq 'AddRoute' }).Count | Should -BeGreaterOrEqual 1
+        ($script:ManifestActions | Where-Object { $_.Action -eq 'AddDynamicKeyword' }).Count | Should -Be 6
+    }
+
+    It 'removes firewall rules, dynamic keywords, and routes during manifest undo in reverse order' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $manifestUndo = $funcDefs | Where-Object { $_.Name -eq 'Invoke-ManifestUndo' }
+        $getManifestDetail = $funcDefs | Where-Object { $_.Name -eq 'Get-ManifestDetail' }
+        $removeRoute = $funcDefs | Where-Object { $_.Name -eq 'Remove-PersistentNullRoute' }
+        $manifestUndo | Should -Not -BeNullOrEmpty
+        $getManifestDetail | Should -Not -BeNullOrEmpty
+        $removeRoute | Should -Not -BeNullOrEmpty
+
+        $tempDir = Join-Path $env:TEMP "PesterManifestOrder_$(Get-Random)"
+        New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
+        try {
+            $script:ManifestPath = Join-Path $tempDir 'undo-manifest.json'
+            $script:UndoOrder = New-Object System.Collections.Generic.List[string]
+
+            $manifest = @{
+                SchemaVersion = 2
+                Actions = @(
+                    @{ Action = 'AddFirewallRule'; Details = @{ DisplayName = 'Block Adobe Telemetry - Test' } }
+                    @{ Action = 'AddDynamicKeyword'; Details = @{ Id = '{dk-test}'; Keyword = '*.adobe.io' } }
+                    @{ Action = 'AddRoute'; Details = @{ IPAddress = '203.0.113.10' } }
+                )
+            } | ConvertTo-Json -Depth 5
+            Set-Content -Path $script:ManifestPath -Value $manifest -Force
+
+            function Write-Status { param([string]$Message, [string]$Type = 'Info') }
+            function Get-NetFirewallRule { param([string]$DisplayName) }
+            function Remove-NetFirewallRule { param([Parameter(ValueFromPipeline=$true)]$InputObject) process { } }
+            function Remove-NetFirewallDynamicKeywordAddress { param([string]$Id) }
+
+            Invoke-Expression $getManifestDetail.Extent.Text
+            Invoke-Expression $removeRoute.Extent.Text
+            Invoke-Expression $manifestUndo.Extent.Text
+
+            Mock Remove-PersistentNullRoute { $script:UndoOrder.Add("route delete $IPAddress") }
+            Mock Get-NetFirewallRule { [pscustomobject]@{ DisplayName = $DisplayName } }
+            Mock Remove-NetFirewallRule { $script:UndoOrder.Add("firewall $($InputObject.DisplayName)") }
+            Mock Remove-NetFirewallDynamicKeywordAddress { $script:UndoOrder.Add("dynamic $Id") }
+
+            $result = Invoke-ManifestUndo
+
+            $result | Should -Be $true
+            $script:UndoOrder[0] | Should -Be 'route delete 203.0.113.10'
+            $script:UndoOrder[1] | Should -Be 'dynamic {dk-test}'
+            $script:UndoOrder[2] | Should -Be 'firewall Block Adobe Telemetry - Test'
+            Assert-MockCalled Remove-NetFirewallRule -Times 1 -Exactly
+            Assert-MockCalled Remove-NetFirewallDynamicKeywordAddress -ParameterFilter { $Id -eq '{dk-test}' } -Times 1 -Exactly
+        } finally {
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'registers, updates, and removes the watchdog scheduled task with encoded arguments' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $installWatchdog = $funcDefs | Where-Object { $_.Name -eq 'Install-Watchdog' }
+        $removeWatchdog = $funcDefs | Where-Object { $_.Name -eq 'Remove-Watchdog' }
+        $installWatchdog | Should -Not -BeNullOrEmpty
+        $removeWatchdog | Should -Not -BeNullOrEmpty
+
+        $script:WatchdogTaskName = 'Disable-AdobeTelemetry Watchdog'
+        $script:CapturedWatchdogArguments = @()
+        $PSCommandPath = 'C:\Tools\Disable-AdobeTelemetry.ps1'
+
+        function Write-Status { param([string]$Message, [string]$Type = 'Info') }
+            function New-ScheduledTaskAction { param([string]$Execute, [string]$Argument) }
+            function New-ScheduledTaskTrigger { param([string]$DaysOfWeek, [string]$At) }
+            function New-ScheduledTaskPrincipal { param([string]$UserId, [string]$RunLevel) }
+            function New-ScheduledTaskSettingsSet { param([switch]$AllowStartIfOnBatteries, [switch]$DontStopIfGoingOnBatteries, [switch]$StartWhenAvailable, [timespan]$ExecutionTimeLimit) }
+            function Get-ScheduledTask { param([string]$TaskName) }
+            function Register-ScheduledTask { param([string]$TaskName, $Action, $Trigger, $Principal, $Settings, [string]$Description) }
+            function Set-ScheduledTask { param([string]$TaskName, $Action, $Trigger, $Principal, $Settings) }
+            function Unregister-ScheduledTask { param([string]$TaskName, [bool]$Confirm) }
+            function New-EventLog { param([string]$LogName, [string]$Source) }
+
+        Invoke-Expression $installWatchdog.Extent.Text
+        Invoke-Expression $removeWatchdog.Extent.Text
+
+        Mock New-ScheduledTaskAction {
+            $script:CapturedWatchdogArguments += $Argument
+            [pscustomobject]@{ Execute = $Execute; Argument = $Argument }
+        }
+        Mock New-ScheduledTaskTrigger { [pscustomobject]@{ DaysOfWeek = $DaysOfWeek; At = $At } }
+        Mock New-ScheduledTaskPrincipal { [pscustomobject]@{ UserId = $UserId; RunLevel = $RunLevel } }
+        Mock New-ScheduledTaskSettingsSet { [pscustomobject]@{ StartWhenAvailable = $StartWhenAvailable } }
+        Mock Get-ScheduledTask { $null }
+        Mock Register-ScheduledTask { }
+        Mock Set-ScheduledTask { }
+        Mock Unregister-ScheduledTask { }
+        Mock New-EventLog { }
+
+        Install-Watchdog
+
+        Assert-MockCalled Register-ScheduledTask -ParameterFilter { $TaskName -eq 'Disable-AdobeTelemetry Watchdog' -and $Description -like 'Weekly reassertion*' } -Times 1 -Exactly
+        $script:CapturedWatchdogArguments[0] | Should -Match '-EncodedCommand '
+        $encoded = ($script:CapturedWatchdogArguments[0] -replace '^.*-EncodedCommand\s+', '')
+        $decoded = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
+        $decoded | Should -Match 'Test-Path -LiteralPath'
+        $decoded | Should -Match '-Skip Kill'
+
+        Mock Get-ScheduledTask { [pscustomobject]@{ TaskName = 'Disable-AdobeTelemetry Watchdog' } }
+
+        Install-Watchdog
+        Remove-Watchdog
+
+        Assert-MockCalled Set-ScheduledTask -ParameterFilter { $TaskName -eq 'Disable-AdobeTelemetry Watchdog' } -Times 1 -Exactly
+        Assert-MockCalled Unregister-ScheduledTask -ParameterFilter { $TaskName -eq 'Disable-AdobeTelemetry Watchdog' -and $Confirm -eq $false } -Times 1 -Exactly
+    }
+}
+
 Describe 'GUI Script' {
     It 'parses without errors' {
         $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
