@@ -365,6 +365,7 @@ function Invoke-ScriptAsync {
 
             $process = [System.Diagnostics.Process]::Start($psi)
             $capturedLines = [System.Collections.ArrayList]::new()
+            $stderrTask = $process.StandardError.ReadToEndAsync()
             while (-not $process.StandardOutput.EndOfStream) {
                 $line = $process.StandardOutput.ReadLine()
                 if ($line) {
@@ -372,13 +373,13 @@ function Invoke-ScriptAsync {
                     [void]$capturedLines.Add($line)
                 }
             }
-            $errOut = $process.StandardError.ReadToEnd()
+            $process.WaitForExit()
+            $errOut = $stderrTask.GetAwaiter().GetResult()
             if ($errOut) {
                 foreach ($errLine in ($errOut -split "`n")) {
                     if ($errLine.Trim()) { & $writeLogLine "  [!!] $($errLine.Trim())" }
                 }
             }
-            $process.WaitForExit()
 
             if ($outputFile -and $capturedLines.Count -gt 0) {
                 try {
