@@ -1,5 +1,3 @@
-<p align="center"><img src="icon.svg" width="128" height="128" alt="Disable-AdobeTelemetry"></p>
-
 # Disable-AdobeTelemetry
 
 ![Version](https://img.shields.io/badge/version-v2.4.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-PowerShell-lightgrey)
@@ -93,7 +91,7 @@ cd Disable-AdobeTelemetry
 
 - Windows 10/11
 - PowerShell 5.1+
-- **Administrator privileges** (the script will exit if not elevated)
+- **Administrator privileges** (the script auto-elevates via UAC if not already elevated)
 
 ### GUI
 
@@ -106,7 +104,7 @@ A WPF companion GUI with Catppuccin Mocha dark theme at full CLI parity. Include
 ### CLI
 
 ```powershell
-# Right-click PowerShell → Run as Administrator
+# Run from any PowerShell prompt (auto-elevates via UAC)
 .\Disable-AdobeTelemetry.ps1
 
 # Preview what would change without writing anything
@@ -147,7 +145,7 @@ Imported profiles fail closed before any protection phase runs. A profile must c
 
 After apply, the script verifies that the hosts block remains present, Adobe WAM hosts markers are absent, `detect-ccd.creativecloud.adobe.com` resolves to a sinkhole entry, firewall block rules exist, Dynamic Keyword rules exist when supported, and no Adobe-owned outbound connections remain. Verification failures are written to console output, JSONL logs, and `-StatusOnly -OutputFormat JSON`.
 
-Upstream domain merges are audited in the JSONL log with source URL, fetch timestamp, added domains, safelisted domains, rejected malformed entries, and final domain count. Successful live fetches update a last-good cache under `%APPDATA%\Disable-AdobeTelemetry`; failed fetches use that cache when available. `-DryRun` reports the same merge diff without mutating the active domain list or cache.
+Upstream domain merges are audited in the JSONL log with source URL, fetch timestamp, added domains, safelisted domains, rejected malformed entries, and final domain count. Successful live fetches update a last-good cache under `%APPDATA%\Disable-AdobeTelemetry`; failed fetches use that cache when available. `-DryRun` merges upstream domains in memory so all subsequent phase counts are accurate, but does not persist the cache or make any system changes.
 
 ### Machine-Readable Output
 
