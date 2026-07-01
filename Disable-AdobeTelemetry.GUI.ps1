@@ -6,7 +6,7 @@
     with streaming log output. All operations run asynchronously to keep the UI responsive.
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.4.0
+    Version : 2.4.1
     Date    : 2026-07-01
 #>
 
@@ -48,7 +48,7 @@ $colors = @{
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Disable-AdobeTelemetry v2.4.0"
+        Title="Disable-AdobeTelemetry v2.4.1"
         Width="800" Height="720"
         MinWidth="640" MinHeight="520"
         Background="$($colors.Base)"
@@ -234,7 +234,7 @@ $colors = @{
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="StatusText" Grid.Column="0" Text="Ready"
                            Foreground="$($colors.Subtext0)" FontSize="12" VerticalAlignment="Center"/>
-                <TextBlock x:Name="VersionText" Grid.Column="1" Text="v2.4.0"
+                <TextBlock x:Name="VersionText" Grid.Column="1" Text="v2.4.1"
                            Foreground="$($colors.Surface2)" FontSize="11" VerticalAlignment="Center"/>
             </Grid>
         </Border>
@@ -535,7 +535,7 @@ $plumbingStartButton.Add_Click({
                        -StatusMsg "Running plumbing test ($app, $minutes min)..."
 })
 
-Write-LogLine "  Disable-AdobeTelemetry GUI v2.4.0"
+Write-LogLine "  Disable-AdobeTelemetry GUI v2.4.1"
 Write-LogLine "  Script: $mainScript"
 if (-not (Test-Path $mainScript)) {
     Write-LogLine "  [!!] Main script not found. Place this GUI alongside Disable-AdobeTelemetry.ps1."
