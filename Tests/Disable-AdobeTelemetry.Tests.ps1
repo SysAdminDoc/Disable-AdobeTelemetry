@@ -1007,3 +1007,59 @@ Describe 'Negative / Edge-Case Tests' {
         $scriptContent | Should -Match 'VerificationFailures'
     }
 }
+
+Describe 'Inventory Data File Sync' {
+    It 'Data/Inventories.psd1 exists and parses' {
+        $dataFile = Join-Path $PSScriptRoot '..\Data\Inventories.psd1'
+        if (-not (Test-Path $dataFile)) { Set-ItResult -Skipped -Because 'Data file not present'; return }
+        $data = Import-PowerShellDataFile $dataFile
+        $data.Processes.Count | Should -BeGreaterOrEqual 15
+        $data.Services.Count | Should -BeGreaterOrEqual 5
+        $data.DomainsMinimal.Count | Should -BeGreaterOrEqual 10
+        $data.DomainsStandardAdditions.Count | Should -BeGreaterOrEqual 5
+        $data.DomainSafelist.Count | Should -BeGreaterOrEqual 5
+    }
+
+    It 'data file domains match main script domains' {
+        $dataFile = Join-Path $PSScriptRoot '..\Data\Inventories.psd1'
+        if (-not (Test-Path $dataFile)) { Set-ItResult -Skipped -Because 'Data file not present'; return }
+        $data = Import-PowerShellDataFile $dataFile
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+
+        foreach ($domain in $data.DomainsMinimal) {
+            $scriptContent | Should -Match ([regex]::Escape($domain))
+        }
+        foreach ($domain in $data.DomainsStandardAdditions) {
+            $scriptContent | Should -Match ([regex]::Escape($domain))
+        }
+        foreach ($domain in $data.DomainSafelist) {
+            $scriptContent | Should -Match ([regex]::Escape($domain))
+        }
+    }
+
+    It 'data file processes match main script processes' {
+        $dataFile = Join-Path $PSScriptRoot '..\Data\Inventories.psd1'
+        if (-not (Test-Path $dataFile)) { Set-ItResult -Skipped -Because 'Data file not present'; return }
+        $data = Import-PowerShellDataFile $dataFile
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+
+        if ($scriptContent -match '\$AdobeProcesses\s*=\s*@\(([\s\S]*?)\)') {
+            $procBlock = $Matches[1]
+            $scriptProcesses = $procBlock -split "`n" |
+                ForEach-Object { ($_ -split '#')[0].Trim().Trim("'").Trim('"') } |
+                Where-Object { $_ -and $_ -ne '' }
+            $data.Processes.Count | Should -Be $scriptProcesses.Count
+        }
+    }
+
+    It 'Build.ps1 -Verify passes when in sync' {
+        $buildScript = Join-Path $PSScriptRoot '..\Build.ps1'
+        if (-not (Test-Path $buildScript)) { Set-ItResult -Skipped -Because 'Build.ps1 not present'; return }
+        $dataFile = Join-Path $PSScriptRoot '..\Data\Inventories.psd1'
+        if (-not (Test-Path $dataFile)) { Set-ItResult -Skipped -Because 'Data file not present'; return }
+
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match '# BEGIN INVENTORY:Processes'
+        $scriptContent | Should -Match '# END INVENTORY:Domains'
+    }
+}
