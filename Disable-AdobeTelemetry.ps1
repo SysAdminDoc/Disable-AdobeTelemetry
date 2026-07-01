@@ -1077,6 +1077,11 @@ function Remove-PersistentNullRoute {
     & route delete $IPAddress 2>&1 | Out-Null
 }
 
+function Get-AdobeDynamicKeywords {
+    Get-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue |
+        Where-Object { $_.Keyword -like '*adobe*' -or $_.Keyword -like '*demdex*' -or $_.Keyword -like '*adobedtm*' -or $_.Keyword -like '*hstatic*' }
+}
+
 function Test-DynamicKeywordsAvailable {
     try {
         $mpStatus = Get-MpComputerStatus -ErrorAction Stop
@@ -1099,8 +1104,7 @@ function Add-DynamicKeywordFirewallRules {
     )
 
     # Remove existing Dynamic Keyword rules from previous runs
-    $existingDk = Get-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue |
-        Where-Object { $_.Keyword -like '*adobe*' -or $_.Keyword -like '*demdex*' -or $_.Keyword -like '*adobedtm*' }
+    $existingDk = Get-AdobeDynamicKeywords
     if ($existingDk) {
         foreach ($dk in $existingDk) {
             Remove-NetFirewallDynamicKeywordAddress -Id $dk.Id -ErrorAction SilentlyContinue
@@ -2077,8 +2081,7 @@ function Invoke-Undo {
     }
 
     # 3b. Remove Dynamic Keyword FQDN rules
-    $existingDk = Get-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue |
-        Where-Object { $_.Keyword -like '*adobe*' -or $_.Keyword -like '*demdex*' -or $_.Keyword -like '*adobedtm*' }
+    $existingDk = Get-AdobeDynamicKeywords
     if ($existingDk) {
         foreach ($dk in $existingDk) {
             Remove-NetFirewallDynamicKeywordAddress -Id $dk.Id -ErrorAction SilentlyContinue
@@ -2423,19 +2426,11 @@ function Get-StatusData {
     $fwRules = Get-NetFirewallRule -DisplayName 'Block Adobe Telemetry*' -ErrorAction SilentlyContinue
     $statusData.Firewall.RuleCount = if ($fwRules) { @($fwRules).Count } else { 0 }
 
-    $dkAvailable = $false
-    $dkPatterns = @()
-    try {
-        $mpStatus = Get-MpComputerStatus -ErrorAction Stop
-        $mpPrefs = Get-MpPreference -ErrorAction Stop
-        if ($mpStatus.AMRunningMode -eq 'Normal' -and $mpPrefs.EnableNetworkProtection -ge 1) {
-            $dkAvailable = $null -ne (Get-Command New-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue)
-        }
-    } catch { }
+    $dkAvailable = Test-DynamicKeywordsAvailable
     $existingDk = @()
+    $dkPatterns = @()
     if ($dkAvailable) {
-        $existingDk = @(Get-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue |
-            Where-Object { $_.Keyword -like '*adobe*' -or $_.Keyword -like '*demdex*' -or $_.Keyword -like '*adobedtm*' })
+        $existingDk = @(Get-AdobeDynamicKeywords)
         $dkPatterns = @($existingDk | ForEach-Object { $_.Keyword })
     }
     $statusData.Firewall.DynamicKeywords = @{
@@ -2534,23 +2529,15 @@ function Get-PostApplyVerificationData {
     } else {
         $fwRules = Get-NetFirewallRule -DisplayName 'Block Adobe Telemetry*' -ErrorAction SilentlyContinue
         $fwRuleCount = if ($fwRules) { @($fwRules).Count } else { 0 }
-        try {
-            $mpStatus = Get-MpComputerStatus -ErrorAction Stop
-            $mpPrefs = Get-MpPreference -ErrorAction Stop
-            if ($mpStatus.AMRunningMode -eq 'Normal' -and $mpPrefs.EnableNetworkProtection -ge 1) {
-                $dkAvailable = $null -ne (Get-Command New-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue)
-                $existingDk = @()
-                if ($dkAvailable) {
-                    $existingDk = @(Get-NetFirewallDynamicKeywordAddress -ErrorAction SilentlyContinue |
-                        Where-Object { $_.Keyword -like '*adobe*' -or $_.Keyword -like '*demdex*' -or $_.Keyword -like '*adobedtm*' })
-                }
-                $dynamicKeywordStatus = @{
-                    Available = $dkAvailable
-                    Count     = $existingDk.Count
-                    Patterns  = @($existingDk | ForEach-Object { $_.Keyword })
-                }
+        $dkAvailable = Test-DynamicKeywordsAvailable
+        if ($dkAvailable) {
+            $existingDk = @(Get-AdobeDynamicKeywords)
+            $dynamicKeywordStatus = @{
+                Available = $true
+                Count     = $existingDk.Count
+                Patterns  = @($existingDk | ForEach-Object { $_.Keyword })
             }
-        } catch { }
+        }
     }
 
     $connections = @(Get-AdobeTelemetryConnections)
