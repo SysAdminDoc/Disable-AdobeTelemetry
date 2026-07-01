@@ -196,6 +196,21 @@ CC application updates may restore disabled executables. The IFEO debugger redir
 
 The `-Undo` switch automatically reverses all changes: re-enables services and scheduled tasks, removes firewall rules, removes the hosts file block, removes IFEO debugger redirects, restores renamed executables, removes GrowthSDK blocker files, removes registry policy overrides, and re-enables startup entries.
 
+## Development
+
+Static inventories (processes, services, telemetry domains, paths) are maintained in `Data/Inventories.psd1`. After editing the data file, run `Build.ps1` to regenerate the main script:
+
+```powershell
+.\Build.ps1           # Regenerate Disable-AdobeTelemetry.ps1 from data file
+.\Build.ps1 -Verify   # Check if data file and script are in sync
+```
+
+Tests:
+
+```powershell
+Invoke-Pester -Path .\Tests -Output Detailed
+```
+
 ## License
 
 MIT

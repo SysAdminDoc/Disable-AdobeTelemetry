@@ -248,7 +248,7 @@ $script:Counters = @{
     Errors            = 0
 }
 
-# Adobe background processes to kill
+# BEGIN INVENTORY:Processes
 $AdobeProcesses = @(
     'CCXProcess'
     'CCLibrary'
@@ -291,49 +291,50 @@ $AdobeProcesses = @(
     'Adobe Content Synchronizer'
     'node'  # Adobe CEF/Node helpers - filtered by path below
 )
+# END INVENTORY:Processes
 
-# GrowthSDK relative path under each user's LocalLow
+# BEGIN INVENTORY:Paths
 $GrowthSDKRelPath = 'Adobe\GrowthSDK'
 
-# Additional Adobe telemetry/cache directories to neutralize
 $AdditionalPaths = @(
     'Adobe\OOBE\opm.db'
     'Adobe\OOBE\PDApp\CCM\Telemetry'
 )
 
 $AdobeAppExecutables = @{
-    'Photoshop'        = 'Photoshop.exe'
-    'Illustrator'      = 'Illustrator.exe'
-    'Premiere'         = 'Adobe Premiere Pro.exe'
-    'PremierePro'      = 'Adobe Premiere Pro.exe'
-    'AfterEffects'     = 'AfterFX.exe'
-    'InDesign'         = 'InDesign.exe'
-    'Lightroom'        = 'Lightroom.exe'
-    'LightroomClassic' = 'Lightroom.exe'
-    'Audition'         = 'Adobe Audition.exe'
-    'Animate'          = 'Animate.exe'
-    'MediaEncoder'     = 'Adobe Media Encoder.exe'
-    'SubstancePainter' = 'Adobe Substance 3D Painter.exe'
-    'SubstanceDesigner'= 'Adobe Substance 3D Designer.exe'
-    'SubstanceSampler' = 'Adobe Substance 3D Sampler.exe'
-    'SubstanceStager'  = 'Adobe Substance 3D Stager.exe'
-    'Dimension'        = 'Adobe Dimension.exe'
-    'Acrobat'          = 'Acrobat.exe'
-    'Reader'           = 'AcroRd32.exe'
+    'Acrobat'           = 'Acrobat.exe'
+    'AfterEffects'      = 'AfterFX.exe'
+    'Animate'           = 'Animate.exe'
+    'Audition'          = 'Adobe Audition.exe'
+    'Dimension'         = 'Adobe Dimension.exe'
+    'Illustrator'       = 'Illustrator.exe'
+    'InDesign'          = 'InDesign.exe'
+    'Lightroom'         = 'Lightroom.exe'
+    'LightroomClassic'  = 'Lightroom.exe'
+    'MediaEncoder'      = 'Adobe Media Encoder.exe'
+    'Photoshop'         = 'Photoshop.exe'
+    'Premiere'          = 'Adobe Premiere Pro.exe'
+    'PremierePro'       = 'Adobe Premiere Pro.exe'
+    'Reader'            = 'AcroRd32.exe'
+    'SubstanceDesigner' = 'Adobe Substance 3D Designer.exe'
+    'SubstancePainter'  = 'Adobe Substance 3D Painter.exe'
+    'SubstanceSampler'  = 'Adobe Substance 3D Sampler.exe'
+    'SubstanceStager'   = 'Adobe Substance 3D Stager.exe'
 }
+# END INVENTORY:Paths
 
-# Services to disable
+# BEGIN INVENTORY:Services
 $Services = @(
-    'AGSService'           # Adobe Genuine Software Integrity
-    'AGMService'           # Adobe Genuine Monitor
-    'AdobeARMservice'      # Adobe Acrobat Update Service
-    'AdobeUpdateService'   # Adobe Update Service
+    'AGSService'                    # Adobe Genuine Software Integrity
+    'AGMService'                    # Adobe Genuine Monitor
+    'AdobeARMservice'               # Adobe Acrobat Update Service
+    'AdobeUpdateService'            # Adobe Update Service
     'AdobeFlashPlayerUpdateSvc'
     'CCXProcess'
 )
+# END INVENTORY:Services
 
-# Adobe telemetry / analytics domains
-# Telemetry domains - tiered by profile
+# BEGIN INVENTORY:Domains
 $TelemetryDomainsMinimal = @(
     'cc-api-data.adobe.io'
     'ada.adobe.io'
@@ -399,14 +400,12 @@ $TelemetryDomainsAggressive = $TelemetryDomainsStandard + @(
     'firefly-clio-imaging-preview.adobe.io'
 )
 
-# Select domain list based on profile
 $TelemetryDomains = switch ($Profile) {
     'Minimal'    { $TelemetryDomainsMinimal }
     'Aggressive' { $TelemetryDomainsAggressive }
     default      { $TelemetryDomainsStandard }
 }
 
-# Domains that must never be blocked — required for authentication and downloads
 $script:DomainSafelist = @(
     'ims-na1.adobelogin.com'
     'auth.services.adobe.com'
@@ -419,6 +418,7 @@ $script:DomainSafelist = @(
     'stock.adobe.com'
     'www.adobe.com'
 )
+# END INVENTORY:Domains
 
 # Optionally merge upstream domains from a-dove-is-dumb community list
 $script:UpstreamUrl = 'https://a.dove.isdumb.one/list.txt'
