@@ -56,8 +56,8 @@
 
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.3.6
-    Date    : 2026-06-27
+    Version : 2.4.0
+    Date    : 2026-07-01
 
     Exit codes:
       0    = Success (no reboot needed) or dry run completed
@@ -816,9 +816,13 @@ function Remove-GrowthSDK {
                 $script:Counters.GrowthSDKBlocked++
                 continue
             }
-            # Nuke the directory
+            # Nuke the directory with retry for slow/encrypted disks
             Remove-Item $growthDir -Recurse -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Milliseconds 200
+            $retryMs = 200
+            for ($attempt = 0; $attempt -lt 5 -and (Test-Path $growthDir); $attempt++) {
+                Start-Sleep -Milliseconds $retryMs
+                $retryMs *= 2
+            }
 
             if (-not (Test-Path $growthDir)) {
                 # Plant a read-only blocker file where the directory was
@@ -1243,7 +1247,9 @@ function Block-AdobeFirewall {
             if ($found) { $adobeExePaths += $found.FullName }
         }
     }
+    $adobeExePaths = @($adobeExePaths | Sort-Object -Unique)
 
+    $exeRulesCreated = 0
     foreach ($exePath in $adobeExePaths) {
         if (Test-Path $exePath) {
             $exeName = Split-Path $exePath -Leaf
@@ -1263,11 +1269,12 @@ function Block-AdobeFirewall {
                 }
             }
             $script:Counters.FirewallRulesAdded++
+            $exeRulesCreated++
         }
     }
 
-    if ($script:Counters.FirewallRulesAdded -gt 1) {
-        Write-Status "Blocked $($script:Counters.FirewallRulesAdded - 1) Adobe executables via firewall" -Type Success
+    if ($exeRulesCreated -gt 0) {
+        Write-Status "Blocked $exeRulesCreated Adobe executable(s) via firewall" -Type Success
     } else {
         Write-Status 'No known Adobe telemetry executables found on disk' -Type Warning
     }
@@ -1345,7 +1352,7 @@ function Block-AdobeHostsFile {
     $wamPattern = '(?s)\r?\n?#{1,2}\s*Adobe Creative Cloud WAM\s*-\s*Start\s*#{0,2}.*?#{1,2}\s*Adobe Creative Cloud WAM\s*-\s*End\s*#{0,2}\r?\n?'
     if ($hostsContent -match $wamPattern) {
         $hostsContent = $hostsContent -replace $wamPattern, ''
-        Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding ASCII
+        Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding UTF8
         Write-Status 'Removed Adobe WAM hosts injection' -Type Success
         Add-ManifestAction -Phase 'Hosts' -Action 'RemoveHostsBlock' -Details @{
             Path = $hostsPath; Marker = 'WAM'; EndMarker = 'WAM'
@@ -1356,7 +1363,7 @@ function Block-AdobeHostsFile {
     if ($hostsContent -match [regex]::Escape($marker)) {
         $pattern = "(?s)$([regex]::Escape($marker)).*?$([regex]::Escape($endMarker))\r?\n?"
         $hostsContent = $hostsContent -replace $pattern, ''
-        Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding ASCII
+        Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding UTF8
     }
 
     # Append new block (IPv4 + IPv6 sinkhole for each domain)
@@ -1368,7 +1375,7 @@ function Block-AdobeHostsFile {
     $blockEntries += $endMarker
 
     $newBlock = "`r`n" + ($blockEntries -join "`r`n") + "`r`n"
-    Add-Content -Path $hostsPath -Value $newBlock -Encoding ASCII
+    Add-Content -Path $hostsPath -Value $newBlock -Encoding UTF8
     Write-Status "Added $($TelemetryDomains.Count) domains to hosts file" -Type Success
     Add-ManifestAction -Phase 'Hosts' -Action 'HostsBlock' -Details @{
         Path = $hostsPath; Marker = $marker; EndMarker = $endMarker; BackupPath = $backupPath
@@ -1861,7 +1868,7 @@ function Remove-HostsBlockByMarker {
     if ($content -and $content -match [regex]::Escape($Marker)) {
         $pattern = "(?s)\r?\n?$([regex]::Escape($Marker)).*?$([regex]::Escape($EndMarker))\r?\n?"
         $content = $content -replace $pattern, ''
-        Set-Content -Path $Path -Value $content.TrimEnd() -Force -Encoding ASCII
+        Set-Content -Path $Path -Value $content.TrimEnd() -Force -Encoding UTF8
         Write-Status "Removed hosts block: $Marker" -Type Success
     }
 }
@@ -2118,7 +2125,7 @@ function Invoke-Undo {
         Write-Status 'No Adobe block found in hosts file' -Type Warning
     }
     if ($hostsModified) {
-        Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding ASCII
+        Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding UTF8
         & ipconfig /flushdns 2>&1 | Out-Null
         Write-Status 'DNS cache flushed' -Type Info
     }
@@ -2216,6 +2223,7 @@ function Invoke-Undo {
     $regPathsToRemove = @(
         'HKLM:\SOFTWARE\Policies\Adobe\Common\Enterprise'
         'HKLM:\SOFTWARE\Policies\Adobe\CCXNew'
+        'HKLM:\SOFTWARE\Policies\Adobe\CreativeCloud'
         'HKLM:\SOFTWARE\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown'
         'HKLM:\SOFTWARE\Policies\Adobe\Acrobat Reader\DC\FeatureLockDown'
         'HKLM:\SOFTWARE\Wow6432Node\Policies\Adobe\Adobe Acrobat\DC\FeatureLockDown'
@@ -2811,6 +2819,11 @@ function Invoke-WfpTrace {
     $outputPath = $TraceOutput
     if (-not $outputPath) {
         $outputPath = Join-Path $script:LogDir ("adobe-wfp-{0}.cab" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    }
+
+    if ($outputPath -match '[";|&<>]') {
+        Write-Status "Invalid trace output path (contains shell metacharacters)" -Type Error
+        return
     }
 
     if ($DryRun) {

@@ -1063,3 +1063,44 @@ Describe 'Inventory Data File Sync' {
         $scriptContent | Should -Match '# END INVENTORY:Domains'
     }
 }
+
+Describe 'Audit Regression Tests' {
+    It '.NOTES version matches runtime DisplayVersion' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $notesVersion = ([regex]::Match($scriptContent, 'Version\s*:\s*(\d+\.\d+\.\d+)')).Groups[1].Value
+        $displayVersion = ([regex]::Match($scriptContent, "DisplayVersion\s*=\s*'v(\d+\.\d+\.\d+)'")).Groups[1].Value
+        $notesVersion | Should -Be $displayVersion
+    }
+
+    It 'hosts file operations do not use ASCII encoding' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Not -Match '-Encoding ASCII'
+    }
+
+    It 'legacy undo includes CreativeCloud registry path' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'Policies\\Adobe\\CreativeCloud'
+    }
+
+    It 'firewall exe paths are deduplicated before rule creation' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match '\$adobeExePaths\s*=\s*@\(\$adobeExePaths\s*\|\s*Sort-Object\s*-Unique\)'
+    }
+
+    It 'WFP trace validates output path for shell metacharacters' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'outputPath\s+-match\s+.*[";|&]'
+    }
+
+    It 'GrowthSDK removal retries instead of fixed sleep' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'retryMs\s*\*=\s*2'
+    }
+
+    It 'GUI reads stderr asynchronously to prevent deadlock' {
+        $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
+        if (-not (Test-Path $guiPath)) { Set-ItResult -Skipped -Because 'GUI script not present'; return }
+        $guiContent = Get-Content $guiPath -Raw
+        $guiContent | Should -Match 'ReadToEndAsync'
+    }
+}
