@@ -534,13 +534,16 @@ function Merge-UpstreamDomains {
     }
 
     Write-UpstreamMergeAudit -MergeResult $mergeResult
+    if ($mergeResult.AcceptedDomains.Count -gt 0) {
+        $script:TelemetryDomains = ($script:TelemetryDomains + $mergeResult.AcceptedDomains) | Sort-Object -Unique
+    }
+
     if ($DryRun) {
-        Write-Status "Would merge $($mergeResult.AddedDomains.Count) upstream domains from $($mergeResult.Source) ($($mergeResult.FinalCount) total, $($mergeResult.SafelistedDomains.Count) safelisted, $($mergeResult.RejectedMalformedEntries.Count) rejected)" -Type DryRun
+        Write-Status "Would merge $($mergeResult.AddedDomains.Count) upstream domains from $($mergeResult.Source) ($($script:TelemetryDomains.Count) total, $($mergeResult.SafelistedDomains.Count) safelisted, $($mergeResult.RejectedMalformedEntries.Count) rejected)" -Type DryRun
         return
     }
 
-    if ($mergeResult.AcceptedDomains.Count -gt 0) {
-        $script:TelemetryDomains = ($script:TelemetryDomains + $mergeResult.AcceptedDomains) | Sort-Object -Unique
+    if ($mergeResult.AddedDomains.Count -gt 0) {
         Write-Status "Merged $($mergeResult.AddedDomains.Count) upstream domains from $($mergeResult.Source) ($($script:TelemetryDomains.Count) total, $($mergeResult.SafelistedDomains.Count) safelisted, $($mergeResult.RejectedMalformedEntries.Count) rejected)" -Type Success
     }
 }
@@ -1967,6 +1970,8 @@ function Invoke-ManifestUndo {
                     if ($renamedPath -and (Test-Path $renamedPath) -and $originalPath -and -not (Test-Path $originalPath)) {
                         Rename-Item -Path $renamedPath -NewName (Split-Path $originalPath -Leaf) -Force
                         Write-Status "Restored file: $originalPath" -Type Success
+                    } else {
+                        Write-Status "Skipped file restore (renamed file missing or original already exists): $originalPath" -Type Warning
                     }
                 }
                 'RenameStartupShortcut' {
@@ -1975,6 +1980,8 @@ function Invoke-ManifestUndo {
                     if ($renamedPath -and (Test-Path $renamedPath) -and $originalPath -and -not (Test-Path $originalPath)) {
                         Rename-Item -Path $renamedPath -NewName (Split-Path $originalPath -Leaf) -Force
                         Write-Status "Restored startup shortcut: $originalPath" -Type Success
+                    } else {
+                        Write-Status "Skipped shortcut restore (file missing or original exists): $originalPath" -Type Warning
                     }
                 }
                 'SetAclDeny' {
@@ -2885,6 +2892,10 @@ function Invoke-PlumbingTest {
     }
 
     Stop-AdobeProcesses
+    if (-not $proc.HasExited) {
+        $proc | Stop-Process -Force -ErrorAction SilentlyContinue
+        Write-Status "Stopped $AppName (PID $($proc.Id))" -Type Info
+    }
     Write-Status "Plumbing test artifacts saved to $captureRoot" -Type Success
 }
 
@@ -3128,12 +3139,19 @@ if ($RemoveWatchdog) {
     Remove-Watchdog
     exit 0
 }
+if ($ExportProfile -and $ImportProfile) {
+    Write-Host "  [!!] Cannot use -ExportProfile and -ImportProfile together" -ForegroundColor Red
+    exit 2
+}
 if ($ExportProfile) {
     Export-RunProfile -Path $ExportProfile
     exit 0
 }
 if ($ImportProfile) {
     Import-RunProfile -Path $ImportProfile
+    if (-not $Only -and -not $Skip -and $Profile -eq 'Minimal') {
+        $Skip = @('GrowthSDK', 'CCXProcess', 'Services', 'Tasks', 'Registry', 'Acrobat', 'Startup')
+    }
 }
 
 if ($ConnectionReport) {
