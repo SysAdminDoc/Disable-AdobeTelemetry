@@ -1103,4 +1103,42 @@ Describe 'Audit Regression Tests' {
         $guiContent = Get-Content $guiPath -Raw
         $guiContent | Should -Match 'ReadToEndAsync'
     }
+
+    It 'manifest undo warns when renamed file is missing' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'Skipped file restore \(renamed file missing'
+        $scriptContent | Should -Match 'Skipped shortcut restore \(file missing'
+    }
+
+    It 'DryRun merges upstream domains in-memory before returning' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $mergeFunc = [regex]::Match($scriptContent, '(?s)function Merge-UpstreamDomains\s*\{(.+?)^\}', [System.Text.RegularExpressions.RegexOptions]::Multiline)
+        $mergeFunc.Success | Should -BeTrue
+        $mergeBody = $mergeFunc.Groups[1].Value
+        $mergeIdx = $mergeBody.IndexOf('TelemetryDomains =')
+        $dryRunIdx = $mergeBody.IndexOf('if ($DryRun)')
+        $mergeIdx | Should -BeLessThan $dryRunIdx -Because 'domain merge must happen before DryRun check'
+    }
+
+    It 'Import and Export profile cannot be used together' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'ExportProfile -and \$ImportProfile'
+    }
+
+    It 'PlumbingTest kills launched app after deadline' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'proc\.HasExited'
+    }
+
+    It 'imported Minimal profile reapplies phase-skip defaults' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match "Import-RunProfile[\s\S]{0,200}Profile -eq 'Minimal'"
+    }
+
+    It 'GUI warns when main script is missing on startup' {
+        $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
+        if (-not (Test-Path $guiPath)) { Set-ItResult -Skipped -Because 'GUI script not present'; return }
+        $guiContent = Get-Content $guiPath -Raw
+        $guiContent | Should -Match 'Main script not found'
+    }
 }

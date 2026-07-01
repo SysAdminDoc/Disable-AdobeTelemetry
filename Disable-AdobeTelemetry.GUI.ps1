@@ -537,6 +537,9 @@ $plumbingStartButton.Add_Click({
 
 Write-LogLine "  Disable-AdobeTelemetry GUI v2.4.0"
 Write-LogLine "  Script: $mainScript"
+if (-not (Test-Path $mainScript)) {
+    Write-LogLine "  [!!] Main script not found. Place this GUI alongside Disable-AdobeTelemetry.ps1."
+}
 Write-LogLine ""
 
 $window.ShowDialog() | Out-Null
