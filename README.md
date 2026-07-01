@@ -70,6 +70,23 @@ For GrowthSDK, a similar approach is used: the directory is replaced with a read
 
 > **Note:** AdobeIPCBroker.exe is **not** given this treatment. It is required for Premiere Pro and Photoshop to start. Instead, it is blocked via outbound firewall rule only — it can still handle local inter-process communication but cannot phone home. If a previous run of the script disabled IPCBroker, the current version will automatically restore it.
 
+## Install
+
+Download the latest release ZIP from [GitHub Releases](https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/latest), extract, and run. Each release includes the CLI script, GUI companion, README, and LICENSE.
+
+```powershell
+# Verify the download checksum
+(Get-FileHash Disable-AdobeTelemetry-v2.4.0.zip -Algorithm SHA256).Hash
+# Compare against the hash in SHA256SUMS.txt from the same release
+```
+
+Or clone the repo directly:
+
+```powershell
+git clone https://github.com/SysAdminDoc/Disable-AdobeTelemetry.git
+cd Disable-AdobeTelemetry
+```
+
 ## Usage
 
 ### Requirements
