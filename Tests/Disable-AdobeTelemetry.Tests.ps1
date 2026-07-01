@@ -706,6 +706,69 @@ Describe 'GUI Script' {
         $guiStatusVersion = ([regex]::Match($guiContent, 'Text="v(\d+\.\d+\.\d+)"')).Groups[1].Value
         $guiStatusVersion | Should -Be $mainVersion
     }
+
+    It 'exposes watchdog, profile, WFP trace, plumbing, and JSON status controls' {
+        $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
+        if (-not (Test-Path $guiPath)) { Set-ItResult -Skipped -Because 'GUI script not present'; return }
+        $guiContent = Get-Content $guiPath -Raw
+
+        $guiContent | Should -Match 'WatchdogInstallButton'
+        $guiContent | Should -Match 'WatchdogRemoveButton'
+        $guiContent | Should -Match 'ImportProfileButton'
+        $guiContent | Should -Match 'ExportProfileButton'
+        $guiContent | Should -Match 'SaveJsonButton'
+        $guiContent | Should -Match 'TraceMinutesBox'
+        $guiContent | Should -Match 'TraceOutputBox'
+        $guiContent | Should -Match 'TraceBrowseButton'
+        $guiContent | Should -Match 'TraceStartButton'
+        $guiContent | Should -Match 'PlumbingAppBox'
+        $guiContent | Should -Match 'PlumbingMinutesBox'
+        $guiContent | Should -Match 'PlumbingStartButton'
+    }
+
+    It 'wires watchdog buttons to CLI switches' {
+        $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
+        if (-not (Test-Path $guiPath)) { Set-ItResult -Skipped -Because 'GUI script not present'; return }
+        $guiContent = Get-Content $guiPath -Raw
+
+        $guiContent | Should -Match "'-InstallWatchdog'"
+        $guiContent | Should -Match "'-RemoveWatchdog'"
+    }
+
+    It 'wires profile import/export to file picker dialogs' {
+        $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
+        if (-not (Test-Path $guiPath)) { Set-ItResult -Skipped -Because 'GUI script not present'; return }
+        $guiContent = Get-Content $guiPath -Raw
+
+        $guiContent | Should -Match 'Microsoft\.Win32\.OpenFileDialog'
+        $guiContent | Should -Match 'Microsoft\.Win32\.SaveFileDialog'
+        $guiContent | Should -Match "'-ImportProfile'"
+        $guiContent | Should -Match "'-ExportProfile'"
+    }
+
+    It 'wires JSON status save with OutputFile capture' {
+        $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
+        if (-not (Test-Path $guiPath)) { Set-ItResult -Skipped -Because 'GUI script not present'; return }
+        $guiContent = Get-Content $guiPath -Raw
+
+        $guiContent | Should -Match "'-OutputFormat'"
+        $guiContent | Should -Match "'-StatusOnly'"
+        $guiContent | Should -Match 'OutputFile'
+        $guiContent | Should -Match 'capturedLines'
+    }
+
+    It 'validates trace and plumbing minute inputs' {
+        $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
+        if (-not (Test-Path $guiPath)) { Set-ItResult -Skipped -Because 'GUI script not present'; return }
+        $guiContent = Get-Content $guiPath -Raw
+
+        $guiContent | Should -Match "'-WfpTrace'"
+        $guiContent | Should -Match "'-TraceMinutes'"
+        $guiContent | Should -Match "'-PlumbingTest'"
+        $guiContent | Should -Match "'-PlumbingApp'"
+        $guiContent | Should -Match "'-PlumbingMinutes'"
+        $guiContent | Should -Match '1-1440'
+    }
 }
 
 Describe 'Negative / Edge-Case Tests' {

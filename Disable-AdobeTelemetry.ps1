@@ -128,7 +128,7 @@ if (-not $isAdmin) {
 
 $ErrorActionPreference = 'Continue'
 
-$script:DisplayVersion = 'v2.3.6'
+$script:DisplayVersion = 'v2.4.0'
 $script:Version = $script:DisplayVersion.TrimStart('v')
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
 $script:LogDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\logs'

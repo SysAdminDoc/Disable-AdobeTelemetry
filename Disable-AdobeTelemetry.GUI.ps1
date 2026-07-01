@@ -6,8 +6,8 @@
     with streaming log output. All operations run asynchronously to keep the UI responsive.
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.3.6
-    Date    : 2026-06-27
+    Version : 2.4.0
+    Date    : 2026-07-01
 #>
 
 Add-Type -AssemblyName PresentationFramework
@@ -48,9 +48,9 @@ $colors = @{
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Disable-AdobeTelemetry v2.3.6"
-        Width="780" Height="620"
-        MinWidth="600" MinHeight="450"
+        Title="Disable-AdobeTelemetry v2.4.0"
+        Width="800" Height="720"
+        MinWidth="640" MinHeight="520"
         Background="$($colors.Base)"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
@@ -99,9 +99,20 @@ $colors = @{
             <Setter Property="Foreground" Value="$($colors.Subtext1)"/>
             <Setter Property="FontSize" Value="13"/>
         </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="$($colors.Surface0)"/>
+            <Setter Property="Foreground" Value="$($colors.Text)"/>
+            <Setter Property="BorderBrush" Value="$($colors.Surface1)"/>
+            <Setter Property="CaretBrush" Value="$($colors.Text)"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
     </Window.Resources>
     <Grid Margin="16">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -122,7 +133,6 @@ $colors = @{
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
@@ -141,8 +151,8 @@ $colors = @{
             </StackPanel>
         </Grid>
 
-        <!-- Action buttons -->
-        <WrapPanel Grid.Row="2" Margin="0,0,0,10">
+        <!-- Primary action buttons -->
+        <WrapPanel Grid.Row="2" Margin="0,0,0,8">
             <Button x:Name="RunButton" Content="Apply Protections" Margin="0,0,8,0"
                     Background="$($colors.Surface0)" Foreground="$($colors.Green)"/>
             <Button x:Name="StatusButton" Content="Status Check" Margin="0,0,8,0"/>
@@ -154,8 +164,54 @@ $colors = @{
                     Foreground="$($colors.Subtext0)"/>
         </WrapPanel>
 
+        <!-- Tool buttons -->
+        <WrapPanel Grid.Row="3" Margin="0,0,0,8">
+            <Button x:Name="WatchdogInstallButton" Content="Install Watchdog" Margin="0,0,8,0"
+                    Foreground="$($colors.Lavender)"/>
+            <Button x:Name="WatchdogRemoveButton" Content="Remove Watchdog" Margin="0,0,8,0"
+                    Foreground="$($colors.Lavender)"/>
+            <Button x:Name="ImportProfileButton" Content="Import Profile" Margin="0,0,8,0"
+                    Foreground="$($colors.Mauve)"/>
+            <Button x:Name="ExportProfileButton" Content="Export Profile" Margin="0,0,8,0"
+                    Foreground="$($colors.Mauve)"/>
+            <Button x:Name="SaveJsonButton" Content="Save JSON Status" Margin="0,0,0,0"
+                    Foreground="$($colors.Yellow)"/>
+        </WrapPanel>
+
+        <!-- Diagnostics -->
+        <Border Grid.Row="4" Background="$($colors.Mantle)" CornerRadius="6"
+                BorderBrush="$($colors.Surface0)" BorderThickness="1" Padding="10,8" Margin="0,0,0,10">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <TextBlock Text="WFP Trace" Foreground="$($colors.Peach)" FontSize="12"
+                               FontWeight="SemiBold" VerticalAlignment="Center" Width="80"/>
+                    <TextBlock Text="Mins:" Foreground="$($colors.Subtext0)" FontSize="12"
+                               VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <TextBox x:Name="TraceMinutesBox" Width="48" Text="10"/>
+                    <TextBlock Text="Output:" Foreground="$($colors.Subtext0)" FontSize="12"
+                               VerticalAlignment="Center" Margin="10,0,4,0"/>
+                    <TextBox x:Name="TraceOutputBox" Width="200"/>
+                    <Button x:Name="TraceBrowseButton" Content="..." Padding="8,4" Margin="4,0,0,0"/>
+                    <Button x:Name="TraceStartButton" Content="Start Trace" Margin="8,0,0,0"
+                            Foreground="$($colors.Peach)" Padding="12,4"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Plumbing" Foreground="$($colors.Peach)" FontSize="12"
+                               FontWeight="SemiBold" VerticalAlignment="Center" Width="80"/>
+                    <TextBlock Text="App:" Foreground="$($colors.Subtext0)" FontSize="12"
+                               VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <TextBox x:Name="PlumbingAppBox" Width="100" Text="Premiere"/>
+                    <TextBlock Text="Mins:" Foreground="$($colors.Subtext0)" FontSize="12"
+                               VerticalAlignment="Center" Margin="10,0,4,0"/>
+                    <TextBox x:Name="PlumbingMinutesBox" Width="48" Text="10"/>
+                    <Button x:Name="PlumbingStartButton" Content="Start Test" Margin="8,0,0,0"
+                            Foreground="$($colors.Peach)" Padding="12,4"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
         <!-- Log output -->
-        <Border Grid.Row="3" Background="$($colors.Crust)" CornerRadius="6"
+        <Border Grid.Row="5" Background="$($colors.Crust)" CornerRadius="6"
                 BorderBrush="$($colors.Surface0)" BorderThickness="1">
             <RichTextBox x:Name="LogBox" IsReadOnly="True" VerticalScrollBarVisibility="Auto"
                          Background="Transparent" Foreground="$($colors.Text)"
@@ -170,7 +226,7 @@ $colors = @{
         </Border>
 
         <!-- Status bar -->
-        <Border Grid.Row="4" Background="$($colors.Mantle)" CornerRadius="4" Margin="0,8,0,0" Padding="10,6">
+        <Border Grid.Row="6" Background="$($colors.Mantle)" CornerRadius="4" Margin="0,8,0,0" Padding="10,6">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -178,7 +234,7 @@ $colors = @{
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="StatusText" Grid.Column="0" Text="Ready"
                            Foreground="$($colors.Subtext0)" FontSize="12" VerticalAlignment="Center"/>
-                <TextBlock x:Name="VersionText" Grid.Column="1" Text="v2.3.6"
+                <TextBlock x:Name="VersionText" Grid.Column="1" Text="v2.4.0"
                            Foreground="$($colors.Surface2)" FontSize="11" VerticalAlignment="Center"/>
             </Grid>
         </Border>
@@ -199,6 +255,18 @@ $clearButton = $window.FindName('ClearButton')
 $profileCombo = $window.FindName('ProfileCombo')
 $dryRunCheck = $window.FindName('DryRunCheck')
 $verboseCheck = $window.FindName('VerboseCheck')
+$watchdogInstallButton = $window.FindName('WatchdogInstallButton')
+$watchdogRemoveButton = $window.FindName('WatchdogRemoveButton')
+$importProfileButton = $window.FindName('ImportProfileButton')
+$exportProfileButton = $window.FindName('ExportProfileButton')
+$saveJsonButton = $window.FindName('SaveJsonButton')
+$traceMinutesBox = $window.FindName('TraceMinutesBox')
+$traceOutputBox = $window.FindName('TraceOutputBox')
+$traceBrowseButton = $window.FindName('TraceBrowseButton')
+$traceStartButton = $window.FindName('TraceStartButton')
+$plumbingAppBox = $window.FindName('PlumbingAppBox')
+$plumbingMinutesBox = $window.FindName('PlumbingMinutesBox')
+$plumbingStartButton = $window.FindName('PlumbingStartButton')
 
 $colorMap = @{
     '[OK]'   = $colors.Green
@@ -241,6 +309,13 @@ function Set-UIEnabled {
         $statusButton.IsEnabled = $isEnabled
         $undoButton.IsEnabled = $isEnabled
         $connectionButton.IsEnabled = $isEnabled
+        $watchdogInstallButton.IsEnabled = $isEnabled
+        $watchdogRemoveButton.IsEnabled = $isEnabled
+        $importProfileButton.IsEnabled = $isEnabled
+        $exportProfileButton.IsEnabled = $isEnabled
+        $saveJsonButton.IsEnabled = $isEnabled
+        $traceStartButton.IsEnabled = $isEnabled
+        $plumbingStartButton.IsEnabled = $isEnabled
     })
 }
 
@@ -256,7 +331,7 @@ $scriptDir = Split-Path -Parent $PSCommandPath
 $mainScript = Join-Path $scriptDir 'Disable-AdobeTelemetry.ps1'
 
 function Invoke-ScriptAsync {
-    param([string[]]$Arguments, [string]$StatusMsg)
+    param([string[]]$Arguments, [string]$StatusMsg, [string]$OutputFile)
 
     if (-not (Test-Path $mainScript)) {
         Write-LogLine "  [!!] Disable-AdobeTelemetry.ps1 not found in $scriptDir"
@@ -271,6 +346,7 @@ function Invoke-ScriptAsync {
     $runspace.Open()
     $runspace.SessionStateProxy.SetVariable('mainScript', $mainScript)
     $runspace.SessionStateProxy.SetVariable('arguments', $Arguments)
+    $runspace.SessionStateProxy.SetVariable('outputFile', $OutputFile)
     $runspace.SessionStateProxy.SetVariable('writeLogLine', ${function:Write-LogLine})
     $runspace.SessionStateProxy.SetVariable('setUIEnabled', ${function:Set-UIEnabled})
     $runspace.SessionStateProxy.SetVariable('setStatusText', ${function:Set-StatusText})
@@ -288,9 +364,13 @@ function Invoke-ScriptAsync {
             $psi.CreateNoWindow = $true
 
             $process = [System.Diagnostics.Process]::Start($psi)
+            $capturedLines = [System.Collections.ArrayList]::new()
             while (-not $process.StandardOutput.EndOfStream) {
                 $line = $process.StandardOutput.ReadLine()
-                if ($line) { & $writeLogLine $line }
+                if ($line) {
+                    & $writeLogLine $line
+                    [void]$capturedLines.Add($line)
+                }
             }
             $errOut = $process.StandardError.ReadToEnd()
             if ($errOut) {
@@ -299,6 +379,16 @@ function Invoke-ScriptAsync {
                 }
             }
             $process.WaitForExit()
+
+            if ($outputFile -and $capturedLines.Count -gt 0) {
+                try {
+                    ($capturedLines -join "`n") | Set-Content -Path $outputFile -Encoding UTF8 -Force
+                    & $writeLogLine "  [OK] Output saved to $outputFile"
+                } catch {
+                    & $writeLogLine "  [!!] Failed to save output: $($_.Exception.Message)"
+                }
+            }
+
             & $setStatusText "Completed (exit code $($process.ExitCode))"
         } catch {
             & $writeLogLine "  [!!] Error: $($_.Exception.Message)"
@@ -331,6 +421,7 @@ function New-CommonArgs {
     return $cmdArgs
 }
 
+# Primary actions
 $runButton.Add_Click({
     $cmdArgs = New-CommonArgs
     Invoke-ScriptAsync -Arguments $cmdArgs -StatusMsg 'Applying protections...'
@@ -353,7 +444,97 @@ $clearButton.Add_Click({
     $statusText.Text = 'Ready'
 })
 
-Write-LogLine "  Disable-AdobeTelemetry GUI v2.3.6"
+# Watchdog
+$watchdogInstallButton.Add_Click({
+    Invoke-ScriptAsync -Arguments @('-InstallWatchdog') -StatusMsg 'Installing watchdog task...'
+})
+
+$watchdogRemoveButton.Add_Click({
+    Invoke-ScriptAsync -Arguments @('-RemoveWatchdog') -StatusMsg 'Removing watchdog task...'
+})
+
+# Profile import/export
+$importProfileButton.Add_Click({
+    $dlg = New-Object Microsoft.Win32.OpenFileDialog
+    $dlg.Title = 'Import Profile'
+    $dlg.Filter = 'JSON files (*.json)|*.json|All files (*.*)|*.*'
+    $dlg.DefaultExt = '.json'
+    if ($dlg.ShowDialog($window)) {
+        $cmdArgs = @('-ImportProfile', "`"$($dlg.FileName)`"")
+        if ($dryRunCheck.IsChecked) { $cmdArgs += '-DryRun' }
+        if ($verboseCheck.IsChecked) { $cmdArgs += '-ShowRationale' }
+        Invoke-ScriptAsync -Arguments $cmdArgs -StatusMsg 'Importing profile...'
+    }
+})
+
+$exportProfileButton.Add_Click({
+    $dlg = New-Object Microsoft.Win32.SaveFileDialog
+    $dlg.Title = 'Export Profile'
+    $dlg.Filter = 'JSON files (*.json)|*.json|All files (*.*)|*.*'
+    $dlg.DefaultExt = '.json'
+    $dlg.FileName = "adobe-telemetry-$(Get-SelectedProfile).json"
+    if ($dlg.ShowDialog($window)) {
+        $cmdArgs = New-CommonArgs
+        $cmdArgs += @('-ExportProfile', "`"$($dlg.FileName)`"")
+        Invoke-ScriptAsync -Arguments $cmdArgs -StatusMsg 'Exporting profile...'
+    }
+})
+
+# JSON status save
+$saveJsonButton.Add_Click({
+    $dlg = New-Object Microsoft.Win32.SaveFileDialog
+    $dlg.Title = 'Save JSON Status'
+    $dlg.Filter = 'JSON files (*.json)|*.json|All files (*.*)|*.*'
+    $dlg.DefaultExt = '.json'
+    $dlg.FileName = 'adobe-telemetry-status.json'
+    if ($dlg.ShowDialog($window)) {
+        Invoke-ScriptAsync -Arguments @('-StatusOnly', '-OutputFormat', 'JSON') `
+                           -StatusMsg 'Saving JSON status...' `
+                           -OutputFile $dlg.FileName
+    }
+})
+
+# WFP Trace
+$traceBrowseButton.Add_Click({
+    $dlg = New-Object Microsoft.Win32.SaveFileDialog
+    $dlg.Title = 'WFP Trace Output'
+    $dlg.Filter = 'ETL files (*.etl)|*.etl|All files (*.*)|*.*'
+    $dlg.DefaultExt = '.etl'
+    $dlg.FileName = 'adobe-wfp-trace.etl'
+    if ($dlg.ShowDialog($window)) {
+        $traceOutputBox.Text = $dlg.FileName
+    }
+})
+
+$traceStartButton.Add_Click({
+    $minutes = $traceMinutesBox.Text
+    if (-not ($minutes -match '^\d+$') -or [int]$minutes -lt 1 -or [int]$minutes -gt 1440) {
+        Write-LogLine '  [!!] Trace minutes must be 1-1440'
+        return
+    }
+    $cmdArgs = @('-WfpTrace', '-TraceMinutes', $minutes)
+    $output = $traceOutputBox.Text.Trim()
+    if ($output) { $cmdArgs += @('-TraceOutput', "`"$output`"") }
+    Invoke-ScriptAsync -Arguments $cmdArgs -StatusMsg "Running WFP trace ($minutes min)..."
+})
+
+# Plumbing Test
+$plumbingStartButton.Add_Click({
+    $app = $plumbingAppBox.Text.Trim()
+    $minutes = $plumbingMinutesBox.Text
+    if (-not $app) {
+        Write-LogLine '  [!!] Plumbing app name required'
+        return
+    }
+    if (-not ($minutes -match '^\d+$') -or [int]$minutes -lt 1 -or [int]$minutes -gt 1440) {
+        Write-LogLine '  [!!] Plumbing minutes must be 1-1440'
+        return
+    }
+    Invoke-ScriptAsync -Arguments @('-PlumbingTest', '-PlumbingApp', "`"$app`"", '-PlumbingMinutes', $minutes) `
+                       -StatusMsg "Running plumbing test ($app, $minutes min)..."
+})
+
+Write-LogLine "  Disable-AdobeTelemetry GUI v2.4.0"
 Write-LogLine "  Script: $mainScript"
 Write-LogLine ""
 
