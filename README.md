@@ -2,7 +2,7 @@
 
 # Disable-AdobeTelemetry
 
-![Version](https://img.shields.io/badge/version-v2.3.6-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-PowerShell-lightgrey)
+![Version](https://img.shields.io/badge/version-v2.4.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-PowerShell-lightgrey)
 
 A PowerShell script that comprehensively disables Adobe's background telemetry, analytics, in-app marketing (GrowthSDK), and persistent background processes that run even after closing Adobe applications.
 
@@ -84,7 +84,7 @@ For GrowthSDK, a similar approach is used: the directory is replaced with a read
 .\Disable-AdobeTelemetry.GUI.ps1
 ```
 
-A WPF companion GUI with Catppuccin Mocha dark theme, profile selection, dry run toggle, and streaming log output. Auto-elevates to admin.
+A WPF companion GUI with Catppuccin Mocha dark theme at full CLI parity. Includes profile selection, dry run toggle, streaming log output, watchdog install/remove, profile import/export with file pickers, JSON status save, WFP trace configuration, and plumbing test controls. Auto-elevates to admin.
 
 ### CLI
 
