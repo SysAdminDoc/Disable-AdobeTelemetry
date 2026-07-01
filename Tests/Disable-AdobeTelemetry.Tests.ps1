@@ -487,6 +487,7 @@ Describe 'Mocked Behavioral Windows Operations' {
         $getRoutePrint = $funcDefs | Where-Object { $_.Name -eq 'Get-RoutePrintOutput' }
         $addRoute = $funcDefs | Where-Object { $_.Name -eq 'Add-PersistentNullRoute' }
         $testDynamicKeywords = $funcDefs | Where-Object { $_.Name -eq 'Test-DynamicKeywordsAvailable' }
+        $getAdobeDynamicKeywords = $funcDefs | Where-Object { $_.Name -eq 'Get-AdobeDynamicKeywords' }
         $addDynamicKeywords = $funcDefs | Where-Object { $_.Name -eq 'Add-DynamicKeywordFirewallRules' }
         $blockFirewall | Should -Not -BeNullOrEmpty
         $addManifest | Should -Not -BeNullOrEmpty
@@ -494,6 +495,7 @@ Describe 'Mocked Behavioral Windows Operations' {
         $getRoutePrint | Should -Not -BeNullOrEmpty
         $addRoute | Should -Not -BeNullOrEmpty
         $testDynamicKeywords | Should -Not -BeNullOrEmpty
+        $getAdobeDynamicKeywords | Should -Not -BeNullOrEmpty
         $addDynamicKeywords | Should -Not -BeNullOrEmpty
 
         $TelemetryDomains = @('telemetry.example.test')
@@ -535,6 +537,7 @@ Describe 'Mocked Behavioral Windows Operations' {
         Invoke-Expression $getRoutePrint.Extent.Text
         Invoke-Expression $addRoute.Extent.Text
         Invoke-Expression $testDynamicKeywords.Extent.Text
+        Invoke-Expression $getAdobeDynamicKeywords.Extent.Text
         Invoke-Expression $addDynamicKeywords.Extent.Text
         Invoke-Expression $blockFirewall.Extent.Text
         Set-Item -Path function:Test-DynamicKeywordsAvailable -Value { return $false } -Force
@@ -545,6 +548,7 @@ Describe 'Mocked Behavioral Windows Operations' {
         Mock Get-NetFirewallRule { @([pscustomobject]@{ DisplayName = 'Block Adobe Telemetry - Old' }) }
         Mock Remove-NetFirewallRule { }
         Mock New-NetFirewallRule { }
+        Mock Get-AdobeDynamicKeywords { @([pscustomobject]@{ Id = '{old-dk}'; Keyword = '*.adobe.io' }) }
         Mock Get-NetFirewallDynamicKeywordAddress { @([pscustomobject]@{ Id = '{old-dk}'; Keyword = '*.adobe.io' }) }
         Mock Remove-NetFirewallDynamicKeywordAddress { }
         Mock New-NetFirewallDynamicKeywordAddress { }
