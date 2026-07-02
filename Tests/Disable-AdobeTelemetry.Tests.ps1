@@ -1526,6 +1526,35 @@ Describe 'Audit Regression Tests' {
         $guiContent | Should -Match 'Stop-Process -Id \$childPid -Force'
     }
 
+    It 'every protection phase honors -DryRun' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $phaseFunctions = @(
+            'Stop-AdobeProcesses', 'Remove-GrowthSDK', 'Disable-CCXProcess', 'Disable-AdobeIPCBroker',
+            'Disable-AdobeScheduledTasks', 'Disable-AdobeServices', 'Set-AdobeRegistryPolicies',
+            'Block-AdobeFirewall', 'Block-AdobeHostsFile', 'Disable-AcrobatTelemetry', 'Disable-AdobeStartupEntries'
+        )
+        foreach ($name in $phaseFunctions) {
+            $fn = $funcDefs | Where-Object { $_.Name -eq $name }
+            $fn | Should -Not -BeNullOrEmpty -Because "$name should exist"
+            $fn.Extent.Text | Should -Match '\$DryRun' -Because "$name must have a DryRun path"
+        }
+    }
+
+    It 'every manifest action type has an undo handler' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        # Action types recorded via Add-ManifestAction -Action '<Type>'
+        $recorded = [regex]::Matches($scriptContent, "Add-ManifestAction[^\r\n]*-Action '([^']+)'") |
+            ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+        $recorded.Count | Should -BeGreaterThan 0
+        # Cases handled in Invoke-ManifestUndo switch: '<Type>' {
+        $undoFunc = ($script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) |
+            Where-Object { $_.Name -eq 'Invoke-ManifestUndo' })
+        $undoBody = $undoFunc.Extent.Text
+        foreach ($type in $recorded) {
+            $undoBody | Should -Match "'$([regex]::Escape($type))' \{" -Because "Invoke-ManifestUndo must handle action type '$type'"
+        }
+    }
+
     It 'manifest undo warns when renamed file is missing' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Match 'Skipped file restore \(renamed file missing'
