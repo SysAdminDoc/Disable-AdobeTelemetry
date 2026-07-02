@@ -1139,6 +1139,48 @@ Describe 'Audit Regression Tests' {
         $scriptContent | Should -Not -Match '-Encoding ASCII'
     }
 
+    It 'hosts block writes BOM-free UTF-8 under an exclusive lock and strips WAM' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $blockHosts = $funcDefs | Where-Object { $_.Name -eq 'Block-AdobeHostsFile' }
+        $blockHosts | Should -Not -BeNullOrEmpty
+
+        # Redirect the hardcoded hosts path ($env:SystemRoot\System32\drivers\etc\hosts) to a temp tree
+        $origSystemRoot = $env:SystemRoot
+        $tmpRoot = Join-Path $env:TEMP "DAHostsTest_$(Get-Random)"
+        $etcDir = Join-Path $tmpRoot 'System32\drivers\etc'
+        New-Item -Path $etcDir -ItemType Directory -Force | Out-Null
+        $hostsFile = Join-Path $etcDir 'hosts'
+        # Seed with a BOM + an existing WAM injection block
+        $seed = "127.0.0.1 localhost`r`n# Adobe Creative Cloud WAM - Start`r`n166.117.29.222 detect-ccd.creativecloud.adobe.com`r`n# Adobe Creative Cloud WAM - End`r`n"
+        [System.IO.File]::WriteAllText($hostsFile, $seed, (New-Object System.Text.UTF8Encoding($true)))
+
+        function Write-Status { param([string]$Message, [string]$Type = 'Info') }
+        function Write-Rationale { param([string]$Message) }
+        function Add-ManifestAction { param([string]$Phase, [string]$Action, [hashtable]$Details) }
+        $TelemetryDomains = @('telemetry.example.test', 'stats.example.test')
+        $DryRun = $false
+        $script:Counters = @{ DomainsBlocked = 0 }
+
+        Invoke-Expression $blockHosts.Extent.Text
+        try {
+            $env:SystemRoot = $tmpRoot
+            Block-AdobeHostsFile
+        } finally {
+            $env:SystemRoot = $origSystemRoot
+        }
+
+        $bytes = [System.IO.File]::ReadAllBytes($hostsFile)
+        # No UTF-8 BOM (EF BB BF)
+        ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) | Should -BeFalse
+        $written = [System.IO.File]::ReadAllText($hostsFile)
+        $written | Should -Match '0\.0\.0\.0    telemetry\.example\.test'
+        $written | Should -Match '# --- Adobe Telemetry Block'
+        $written | Should -Not -Match 'Adobe Creative Cloud WAM'
+        $written | Should -Match '127\.0\.0\.1 localhost'
+
+        Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
     It 'all web requests use -UseBasicParsing (CVE-2025-54100 guard)' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         # Each Invoke-WebRequest / Invoke-RestMethod invocation, up to the end of its
