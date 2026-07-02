@@ -1500,6 +1500,19 @@ Describe 'Audit Regression Tests' {
         $scriptContent | Should -Match 'retryMs\s*\*=\s*2'
     }
 
+    It 'Acrobat telemetry policies are data-driven and use Set-RegistryValueTracked' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $acro = $funcDefs | Where-Object { $_.Name -eq 'Disable-AcrobatTelemetry' }
+        $acro | Should -Not -BeNullOrEmpty
+        $body = $acro.Extent.Text
+        # Policies are a data table applied by a single uniform loop
+        $body | Should -Match '\$acrobatPolicies = @\('
+        $body | Should -Match 'foreach \(\$entry in \$acrobatPolicies\)'
+        $body | Should -Match 'Set-RegistryValueTracked -Phase ''Acrobat'''
+        # No inline per-policy Set-ItemProperty + Add-ManifestAction duplication
+        $body | Should -Not -Match 'Add-ManifestAction -Phase ''Acrobat'''
+    }
+
     It 'GrowthSDK blocker planting is centralized in New-GrowthSDKBlocker' {
         $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
         $helper = $funcDefs | Where-Object { $_.Name -eq 'New-GrowthSDKBlocker' }
