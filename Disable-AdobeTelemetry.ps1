@@ -1328,6 +1328,45 @@ function Block-AdobeFirewall {
     }
 }
 
+function Test-DohEnabled {
+    # DNS-over-HTTPS bypasses hosts-file sinkholing entirely. Detect system- and
+    # browser-level DoH so the user can be warned their hosts layer is ineffective.
+    # Detection only - this never modifies DoH configuration.
+    $sources = @()
+
+    # Windows system auto-DoH (Windows 11 / Server 2025): 0=off, 1=allow, 2=require.
+    # (The DoH-server-address cmdlet is deliberately NOT used - it lists preconfigured
+    # DoH server templates that exist even when DoH is off, causing false positives.)
+    $dnsParams = 'HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters'
+    $autoDoh = (Get-ItemProperty -Path $dnsParams -Name 'EnableAutoDoh' -ErrorAction SilentlyContinue).EnableAutoDoh
+    if ($autoDoh -ge 1) { $sources += "Windows auto-DoH (EnableAutoDoh=$autoDoh)" }
+
+    # Per-interface enforced DoH lives under DohInterfaceSettings\Doh\<server-ip> with a
+    # DohFlags value. (DohProfileSettings\Doh keys are capability templates that exist for
+    # any DoH-capable configured DNS server even when DoH is off - they are ignored here.)
+    $ifaceDohRoot = 'HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\InterfaceSpecificParameters'
+    if (Test-Path $ifaceDohRoot) {
+        $dohIface = Get-ChildItem -Path $ifaceDohRoot -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.PSPath -like '*\DohInterfaceSettings\Doh\*' -or $_.PSPath -like '*\DohInterfaceSettings\Doh6\*' } |
+            Where-Object { $null -ne (Get-ItemProperty -Path $_.PSPath -Name 'DohFlags' -ErrorAction SilentlyContinue).DohFlags }
+        if ($dohIface) { $sources += 'per-interface DoH enforced' }
+    }
+
+    # Browser-enforced DoH policies - each bypasses the hosts file for that browser
+    $browserDoh = @{
+        'Microsoft Edge' = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
+        'Google Chrome'  = 'HKLM:\SOFTWARE\Policies\Google\Chrome'
+    }
+    foreach ($name in $browserDoh.Keys) {
+        $mode = (Get-ItemProperty -Path $browserDoh[$name] -Name 'DnsOverHttpsMode' -ErrorAction SilentlyContinue).DnsOverHttpsMode
+        if ($mode -and $mode -ne 'off') { $sources += "$name DoH policy ($mode)" }
+    }
+    $ffEnabled = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS' -Name 'Enabled' -ErrorAction SilentlyContinue).Enabled
+    if ($ffEnabled -eq 1) { $sources += 'Mozilla Firefox DoH policy (enabled)' }
+
+    return @{ Enabled = ($sources.Count -gt 0); Sources = @($sources) }
+}
+
 function Block-AdobeHostsFile {
     Write-Status 'Blocking Adobe telemetry via hosts file' -Type Header
     Write-Rationale 'Hosts file sinkholing (0.0.0.0) is the simplest blocking layer. It works at the OS resolver level before any network stack is involved, but can be overridden by Adobe WAM (Web Account Manager) which injects its own hosts entries. WAM entries are detected and removed first.'
@@ -1426,6 +1465,12 @@ function Block-AdobeHostsFile {
     # Flush DNS cache so changes take effect immediately
     & ipconfig /flushdns 2>&1 | Out-Null
     Write-Status 'DNS cache flushed' -Type Info
+
+    # Warn if DoH is active - it bypasses hosts-file blocking entirely
+    $doh = Test-DohEnabled
+    if ($doh.Enabled) {
+        Write-Status "DNS-over-HTTPS is enabled ($($doh.Sources -join '; ')). Hosts-file blocking is bypassed by DoH - rely on the firewall/route layers or disable DoH for full coverage." -Type Warning
+    }
 }
 
 function Get-HostsDomainMappings {
@@ -2492,6 +2537,9 @@ function Get-StatusData {
     $hostsContent = Get-Content $hostsPath -Raw -ErrorAction SilentlyContinue
     $statusData.HostsFile.BlockPresent = ($hostsContent -and $hostsContent -match [regex]::Escape($marker))
     $statusData.HostsFile.EndMarkerPresent = ($hostsContent -and $hostsContent -match [regex]::Escape($endMarker))
+    $doh = Test-DohEnabled
+    $statusData.HostsFile.DohEnabled = $doh.Enabled
+    $statusData.HostsFile.DohSources = $doh.Sources
 
     $ifeoCheckExes = @('CCXProcess.exe', 'Creative Cloud Helper.exe', 'AdobeNotificationClient.exe')
     foreach ($ifeoExe in $ifeoCheckExes) {
@@ -2692,6 +2740,11 @@ function Show-Status {
         Write-Host '    Adobe telemetry block: Present' -ForegroundColor Green
     } else {
         Write-Host '    Adobe telemetry block: Not present' -ForegroundColor Yellow
+    }
+    if ($data.HostsFile.DohEnabled) {
+        Write-Host "    DNS-over-HTTPS: ENABLED - hosts blocking bypassed ($($data.HostsFile.DohSources -join '; '))" -ForegroundColor Yellow
+    } else {
+        Write-Host '    DNS-over-HTTPS: Not detected (hosts blocking effective)' -ForegroundColor Green
     }
 
     Write-Host ''

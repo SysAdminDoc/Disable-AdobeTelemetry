@@ -172,6 +172,10 @@ Each apply/undo run also writes a structured JSONL log to `%APPDATA%\Disable-Ado
 
 For the cleanest run, close all Adobe applications before executing. If any rename operations report "file locked," reboot and re-run the script before opening any Adobe apps — the IFEO redirects will already be active as a failsafe in the meantime.
 
+### DNS-over-HTTPS (DoH)
+
+Hosts-file sinkholing works at the OS resolver level, but **DNS-over-HTTPS bypasses it entirely** — a browser or the OS resolving names over an encrypted HTTPS channel never consults the hosts file. The script detects system auto-DoH, per-interface enforced DoH, and Edge/Chrome/Firefox DoH policies, and warns you when any are active. `-StatusOnly` reports DoH state under **Hosts File**. When DoH is enabled, rely on the firewall and persistent-route layers (which block by IP regardless of how the name was resolved) or disable DoH for full hosts-level coverage.
+
 ## What Still Works
 
 Premiere Pro, Photoshop, Illustrator, After Effects, and other Creative Cloud applications continue to function normally. What you lose:

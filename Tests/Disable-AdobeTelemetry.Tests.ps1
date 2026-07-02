@@ -1157,6 +1157,7 @@ Describe 'Audit Regression Tests' {
         function Write-Status { param([string]$Message, [string]$Type = 'Info') }
         function Write-Rationale { param([string]$Message) }
         function Add-ManifestAction { param([string]$Phase, [string]$Action, [hashtable]$Details) }
+        function Test-DohEnabled { @{ Enabled = $false; Sources = @() } }
         $TelemetryDomains = @('telemetry.example.test', 'stats.example.test')
         $DryRun = $false
         $script:Counters = @{ DomainsBlocked = 0 }
@@ -1179,6 +1180,27 @@ Describe 'Audit Regression Tests' {
         $written | Should -Match '127\.0\.0\.1 localhost'
 
         Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'Test-DohEnabled returns a well-formed result without false positives from DoH templates' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $dohFunc = $funcDefs | Where-Object { $_.Name -eq 'Test-DohEnabled' }
+        $dohFunc | Should -Not -BeNullOrEmpty
+        Invoke-Expression $dohFunc.Extent.Text
+        $result = Test-DohEnabled
+        $result.Keys | Should -Contain 'Enabled'
+        $result.Keys | Should -Contain 'Sources'
+        $result.Enabled | Should -BeOfType [bool]
+        # Must not rely on Get-DnsClientDohServerAddress (lists templates present when DoH is off)
+        $dohFunc.Extent.Text | Should -Not -Match 'Get-DnsClientDohServerAddress'
+        # Must not treat DohProfileSettings (capability templates) as active DoH
+        $dohFunc.Extent.Text | Should -Match 'DohInterfaceSettings'
+    }
+
+    It 'status data reports DoH bypass state' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match '\$statusData\.HostsFile\.DohEnabled'
+        $scriptContent | Should -Match 'DNS-over-HTTPS is enabled'
     }
 
     It 'all web requests use -UseBasicParsing (CVE-2025-54100 guard)' {
