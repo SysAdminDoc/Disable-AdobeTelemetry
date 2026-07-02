@@ -3119,9 +3119,14 @@ function Show-Summary {
         @{ Label = 'Verification failures'; Count = $c.VerificationFailures; Color = 'Red' }
     )
 
+    # Aligned table: pad labels to a common width and right-align counts.
+    $labelWidth = ($items | ForEach-Object { $_.Label.Length } | Measure-Object -Maximum).Maximum
+    $header = if ($DryRun) { 'Planned action' } else { 'Action' }
+    Write-Host ("    {0}   Count" -f $header.PadRight($labelWidth)) -ForegroundColor DarkCyan
+    Write-Host ("    {0}   -----" -f ('-' * $labelWidth)) -ForegroundColor DarkGray
     foreach ($item in $items) {
         $color = if ($item.Count -gt 0) { $item.Color } else { 'DarkGray' }
-        Write-Host "    $($item.Label): $($item.Count)" -ForegroundColor $color
+        Write-Host ("    {0} : {1,5}" -f $item.Label.PadRight($labelWidth), $item.Count) -ForegroundColor $color
     }
 
     if ($c.ConnectionsBefore -ge 0 -and $c.ConnectionsAfter -ge 0) {
