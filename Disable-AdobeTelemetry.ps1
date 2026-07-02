@@ -2377,6 +2377,29 @@ function Invoke-Undo {
         }
     }
 
+    # Restore renamed Adobe startup shortcuts (.lnk.disabled -> .lnk) for the
+    # manifest-less legacy path. The manifest undo handles these via RenameStartupShortcut.
+    $startupFolders = @()
+    $commonStartup = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Startup'
+    if (Test-Path $commonStartup) { $startupFolders += $commonStartup }
+    $startupProfileRoot = Split-Path $env:USERPROFILE
+    foreach ($userProf in (Get-ChildItem $startupProfileRoot -Directory -ErrorAction SilentlyContinue)) {
+        $folder = Join-Path $userProf.FullName 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
+        if (Test-Path $folder) { $startupFolders += $folder }
+    }
+    foreach ($folder in ($startupFolders | Sort-Object -Unique)) {
+        $disabledShortcuts = Get-ChildItem -Path $folder -Filter '*.lnk.disabled' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match 'Adobe|Creative Cloud|CCX|CCLibrary|CoreSync' }
+        foreach ($item in $disabledShortcuts) {
+            $restoredName = $item.Name -replace '\.disabled$', ''
+            $restoredPath = Join-Path $folder $restoredName
+            if (-not (Test-Path $restoredPath)) {
+                Rename-Item -Path $item.FullName -NewName $restoredName -Force -ErrorAction SilentlyContinue
+                Write-Status "Restored startup shortcut: $restoredName" -Type Success
+            }
+        }
+    }
+
     # 10. Remove watchdog task if installed
     Write-Status 'Removing watchdog task' -Type Header
     Remove-Watchdog
