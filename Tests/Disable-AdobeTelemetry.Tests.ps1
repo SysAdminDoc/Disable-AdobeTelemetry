@@ -1538,6 +1538,26 @@ Describe 'Audit Regression Tests' {
         $guiContent | Should -Match 'Stop-Process -Id \$childPid -Force'
     }
 
+    It 'Show-Summary renders an aligned table with DryRun-aware header' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $summary = $funcDefs | Where-Object { $_.Name -eq 'Show-Summary' }
+        $summary | Should -Not -BeNullOrEmpty
+
+        $captured = New-Object System.Collections.ArrayList
+        function Write-Host { param([Parameter(ValueFromRemainingArguments=$true)]$args) [void]$script:__cap.Add(($args -join ' ')) }
+        $script:__cap = $captured
+        $DryRun = $true
+        $script:Counters = @{ ProcessesKilled=3; GrowthSDKBlocked=2; ExesNeutralized=1; TasksDisabled=4; ServicesDisabled=5; RegistryKeysSet=12; FirewallRulesAdded=27; FirewallIPsBlocked=40; DomainsBlocked=60; StartupDisabled=2; VerificationFailures=0; ConnectionsBefore=-1; ConnectionsAfter=-1 }
+        Invoke-Expression $summary.Extent.Text
+        Show-Summary
+        Remove-Item function:Write-Host -ErrorAction SilentlyContinue
+
+        $text = $captured -join "`n"
+        $text | Should -Match 'Planned action'          # DryRun header
+        $text | Should -Match 'Domains sinkholed\s+:\s+60'
+        $text | Should -Match 'Firewall rules added\s+:\s+27'
+    }
+
     It 'every protection phase honors -DryRun' {
         $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
         $phaseFunctions = @(
