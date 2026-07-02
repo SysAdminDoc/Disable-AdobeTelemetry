@@ -1399,6 +1399,66 @@ Describe 'Audit Regression Tests' {
         $scriptContent | Should -Match 'Policies\\Adobe\\CreativeCloud'
     }
 
+    It 'Aggressive profile recursively blocks every exe under Adobe install paths' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $blockFirewall = $funcDefs | Where-Object { $_.Name -eq 'Block-AdobeFirewall' }
+        $addManifest = $funcDefs | Where-Object { $_.Name -eq 'Add-ManifestAction' }
+        $resolveDomain = $funcDefs | Where-Object { $_.Name -eq 'Resolve-TelemetryDomainAddresses' }
+        $getRoutePrint = $funcDefs | Where-Object { $_.Name -eq 'Get-RoutePrintOutput' }
+        $addRoute = $funcDefs | Where-Object { $_.Name -eq 'Add-PersistentNullRoute' }
+        $testDk = $funcDefs | Where-Object { $_.Name -eq 'Test-DynamicKeywordsAvailable' }
+        $getAdobeDk = $funcDefs | Where-Object { $_.Name -eq 'Get-AdobeDynamicKeywords' }
+
+        # Fake Adobe install tree with some non-curated exes
+        $fakeRoot = Join-Path $env:TEMP "DAExeWalk_$(Get-Random)"
+        New-Item -Path $fakeRoot -ItemType Directory -Force | Out-Null
+        'x' | Set-Content (Join-Path $fakeRoot 'Photoshop.exe')
+        'x' | Set-Content (Join-Path $fakeRoot 'SomeNewHelper.exe')
+        'x' | Set-Content (Join-Path $fakeRoot 'notes.txt')
+
+        $TelemetryDomains = @('telemetry.example.test')
+        $Profile = 'Aggressive'
+        $script:AdobeInstallPaths = @($fakeRoot)
+        $script:LogFile = Join-Path $env:TEMP "DAExeWalkLog_$(Get-Random).log"
+        $script:Counters = @{ FirewallRulesAdded = 0; FirewallIPsBlocked = 0 }
+        $script:ManifestActions = @()
+        $DryRun = $false
+
+        function Write-Status { param([string]$Message, [string]$Type = 'Info') }
+        function Write-Rationale { param([string]$Message) }
+        function Get-NetFirewallRule { param([string]$DisplayName) }
+        function Remove-NetFirewallRule { param([Parameter(ValueFromPipeline=$true)]$InputObject) process { } }
+        function New-NetFirewallRule { param([string]$DisplayName, [string]$Direction, [string]$Action, [string[]]$RemoteAddress, [string]$Protocol, [int]$RemotePort, [string]$Profile, $Enabled, [string]$Description, [string]$Program, [string]$RemoteDynamicKeywordAddresses) }
+        function Get-MpComputerStatus { }
+        function Get-MpPreference { }
+
+        Invoke-Expression $addManifest.Extent.Text
+        Invoke-Expression $resolveDomain.Extent.Text
+        Invoke-Expression $getRoutePrint.Extent.Text
+        Invoke-Expression $addRoute.Extent.Text
+        Invoke-Expression $testDk.Extent.Text
+        Invoke-Expression $getAdobeDk.Extent.Text
+        Invoke-Expression $blockFirewall.Extent.Text
+        Set-Item -Path function:Test-DynamicKeywordsAvailable -Value { return $false } -Force
+
+        Mock Resolve-TelemetryDomainAddresses { @([System.Net.IPAddress]::Parse('203.0.113.10')) }
+        Mock Get-RoutePrintOutput { @() }
+        Mock Add-PersistentNullRoute { }
+        Mock Get-NetFirewallRule { @() }
+        Mock Remove-NetFirewallRule { }
+        Mock New-NetFirewallRule { }
+        try {
+            Block-AdobeFirewall
+        } finally {
+            Remove-Item -Path $script:LogFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $fakeRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+        # Both exes get program rules; the .txt does not
+        Assert-MockCalled New-NetFirewallRule -ParameterFilter { $Program -like '*Photoshop.exe' } -Times 1 -Exactly
+        Assert-MockCalled New-NetFirewallRule -ParameterFilter { $Program -like '*SomeNewHelper.exe' } -Times 1 -Exactly
+    }
+
     It 'blocks DNS-over-TLS (port 853) only under Aggressive profile' {
         $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
         $fw = $funcDefs | Where-Object { $_.Name -eq 'Block-AdobeFirewall' }
