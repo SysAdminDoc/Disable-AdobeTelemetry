@@ -4,6 +4,11 @@
 .vs/
 CLAUDE.md
 
+# Build artifacts (published to GitHub Releases, not tracked)
+*.zip
+SHA256SUMS.txt
+dist/
+
 # Markdown files local-only (except README)
 *.md
 !README.md
