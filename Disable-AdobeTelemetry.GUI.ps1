@@ -330,6 +330,10 @@ function Set-StatusText {
 $scriptDir = Split-Path -Parent $PSCommandPath
 $mainScript = Join-Path $scriptDir 'Disable-AdobeTelemetry.ps1'
 
+# Thread-safe list of child powershell.exe PIDs so the window Closing handler can
+# terminate any operation still running when the user closes the GUI.
+$script:ActiveChildPids = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new())
+
 function Invoke-ScriptAsync {
     param([string[]]$Arguments, [string]$StatusMsg, [string]$OutputFile)
 
@@ -350,6 +354,7 @@ function Invoke-ScriptAsync {
     $runspace.SessionStateProxy.SetVariable('writeLogLine', ${function:Write-LogLine})
     $runspace.SessionStateProxy.SetVariable('setUIEnabled', ${function:Set-UIEnabled})
     $runspace.SessionStateProxy.SetVariable('setStatusText', ${function:Set-StatusText})
+    $runspace.SessionStateProxy.SetVariable('activeChildPids', $script:ActiveChildPids)
 
     $ps = [powershell]::Create()
     $ps.Runspace = $runspace
@@ -364,6 +369,7 @@ function Invoke-ScriptAsync {
             $psi.CreateNoWindow = $true
 
             $process = [System.Diagnostics.Process]::Start($psi)
+            [void]$activeChildPids.Add($process.Id)
             $capturedLines = [System.Collections.ArrayList]::new()
             $stderrTask = $process.StandardError.ReadToEndAsync()
             while (-not $process.StandardOutput.EndOfStream) {
@@ -395,6 +401,7 @@ function Invoke-ScriptAsync {
             & $writeLogLine "  [!!] Error: $($_.Exception.Message)"
             & $setStatusText 'Error'
         } finally {
+            if ($process) { [void]$activeChildPids.Remove($process.Id) }
             & $setUIEnabled $true
         }
     }) | Out-Null
@@ -541,5 +548,17 @@ if (-not (Test-Path $mainScript)) {
     Write-LogLine "  [!!] Main script not found. Place this GUI alongside Disable-AdobeTelemetry.ps1."
 }
 Write-LogLine ""
+
+# Kill any still-running child operation when the window closes, so an elevated
+# powershell.exe is never orphaned after the GUI exits.
+$window.Add_Closing({
+    $pids = @($script:ActiveChildPids.ToArray())
+    foreach ($childPid in $pids) {
+        try {
+            $proc = Get-Process -Id $childPid -ErrorAction SilentlyContinue
+            if ($proc) { Stop-Process -Id $childPid -Force -ErrorAction SilentlyContinue }
+        } catch { }
+    }
+})
 
 $window.ShowDialog() | Out-Null

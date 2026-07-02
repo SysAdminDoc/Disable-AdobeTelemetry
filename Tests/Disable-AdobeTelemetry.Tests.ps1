@@ -1410,6 +1410,17 @@ Describe 'Audit Regression Tests' {
         $guiContent | Should -Match 'ReadToEndAsync'
     }
 
+    It 'GUI tracks child PIDs and kills them on window close' {
+        $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
+        if (-not (Test-Path $guiPath)) { Set-ItResult -Skipped -Because 'GUI script not present'; return }
+        $guiContent = Get-Content $guiPath -Raw
+        $guiContent | Should -Match 'ActiveChildPids'
+        $guiContent | Should -Match '\$activeChildPids\.Add\(\$process\.Id\)'
+        $guiContent | Should -Match '\$activeChildPids\.Remove\(\$process\.Id\)'
+        $guiContent | Should -Match '\$window\.Add_Closing'
+        $guiContent | Should -Match 'Stop-Process -Id \$childPid -Force'
+    }
+
     It 'manifest undo warns when renamed file is missing' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Match 'Skipped file restore \(renamed file missing'
