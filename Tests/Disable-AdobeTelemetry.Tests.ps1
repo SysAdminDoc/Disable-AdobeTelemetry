@@ -788,6 +788,25 @@ Describe 'GUI Script' {
         $guiContent | Should -Match 'PlumbingStartButton'
     }
 
+    It 'exposes LockHostsFile/AllUsers checkboxes, progress bar, and update label' {
+        $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
+        if (-not (Test-Path $guiPath)) { Set-ItResult -Skipped -Because 'GUI script not present'; return }
+        $guiContent = Get-Content $guiPath -Raw
+        # Controls exist in XAML
+        $guiContent | Should -Match 'x:Name="LockHostsCheck"'
+        $guiContent | Should -Match 'x:Name="AllUsersCheck"'
+        $guiContent | Should -Match 'x:Name="BusyBar"'
+        $guiContent | Should -Match 'x:Name="UpdateText"'
+        # Checkboxes wired to CLI switches
+        $guiContent | Should -Match "if \(\`$lockHostsCheck\.IsChecked\) \{ \`$cmdArgs \+= '-LockHostsFile' \}"
+        $guiContent | Should -Match "if \(\`$allUsersCheck\.IsChecked\) \{ \`$cmdArgs \+= '-AllUsers' \}"
+        # Progress bar toggles with UI enabled state
+        $guiContent | Should -Match "\`$busyBar\.Visibility = if \(\`$isEnabled\)"
+        # Update label populated from the update-check cache
+        $guiContent | Should -Match 'update-check\.json'
+        $guiContent | Should -Match '\$updateText\.Text ='
+    }
+
     It 'wires watchdog buttons to CLI switches' {
         $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
         if (-not (Test-Path $guiPath)) { Set-ItResult -Skipped -Because 'GUI script not present'; return }
