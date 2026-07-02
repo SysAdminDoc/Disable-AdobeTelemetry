@@ -75,7 +75,6 @@
         'AGMService'
         'AdobeARMservice'
         'AdobeUpdateService'
-        'AdobeFlashPlayerUpdateSvc'
         'CCXProcess'
     )
 
