@@ -1222,6 +1222,26 @@ Describe 'Audit Regression Tests' {
         $loop.Value | Should -Not -Match '\$targetPath -PathType Container'
     }
 
+    It 'Test-PhaseEnabled honors -Skip even when combined with -Only' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $phaseFunc = $funcDefs | Where-Object { $_.Name -eq 'Test-PhaseEnabled' }
+        $phaseFunc | Should -Not -BeNullOrEmpty
+        Invoke-Expression $phaseFunc.Extent.Text
+
+        $Only = @('Firewall', 'Hosts'); $Skip = @('Hosts')
+        (Test-PhaseEnabled 'Firewall') | Should -BeTrue
+        (Test-PhaseEnabled 'Hosts')    | Should -BeFalse   # -Skip wins over -Only
+        (Test-PhaseEnabled 'Kill')     | Should -BeFalse   # not in -Only
+
+        $Only = @(); $Skip = @('Kill')
+        (Test-PhaseEnabled 'Kill')     | Should -BeFalse
+        (Test-PhaseEnabled 'Firewall') | Should -BeTrue
+
+        $Only = @('Registry'); $Skip = @()
+        (Test-PhaseEnabled 'Registry') | Should -BeTrue
+        (Test-PhaseEnabled 'Hosts')    | Should -BeFalse
+    }
+
     It 'legacy undo restores renamed startup shortcuts' {
         $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
         $undo = $funcDefs | Where-Object { $_.Name -eq 'Invoke-Undo' }
