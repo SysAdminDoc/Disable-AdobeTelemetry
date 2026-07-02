@@ -574,6 +574,64 @@ Describe 'Mocked Behavioral Windows Operations' {
         ($script:ManifestActions | Where-Object { $_.Action -eq 'AddDynamicKeyword' }).Count | Should -Be 6
     }
 
+    It 'firewall phase cleanup preserves CCXProcess and AdobeIPCBroker rules' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $blockFirewall = $funcDefs | Where-Object { $_.Name -eq 'Block-AdobeFirewall' }
+        $addManifest = $funcDefs | Where-Object { $_.Name -eq 'Add-ManifestAction' }
+        $resolveDomain = $funcDefs | Where-Object { $_.Name -eq 'Resolve-TelemetryDomainAddresses' }
+        $getRoutePrint = $funcDefs | Where-Object { $_.Name -eq 'Get-RoutePrintOutput' }
+        $addRoute = $funcDefs | Where-Object { $_.Name -eq 'Add-PersistentNullRoute' }
+        $testDynamicKeywords = $funcDefs | Where-Object { $_.Name -eq 'Test-DynamicKeywordsAvailable' }
+        $getAdobeDynamicKeywords = $funcDefs | Where-Object { $_.Name -eq 'Get-AdobeDynamicKeywords' }
+
+        $TelemetryDomains = @('telemetry.example.test')
+        $script:AdobeInstallPaths = @()
+        $script:LogFile = Join-Path $env:TEMP "DisableAdobeTelemetryFwFilterTest_$(Get-Random).log"
+        $script:Counters = @{ FirewallRulesAdded = 0; FirewallIPsBlocked = 0 }
+        $script:ManifestActions = @()
+        $DryRun = $false
+
+        function Write-Status { param([string]$Message, [string]$Type = 'Info') }
+        function Write-Rationale { param([string]$Message) }
+        function Get-NetFirewallRule { param([string]$DisplayName) }
+        function Remove-NetFirewallRule { param([Parameter(ValueFromPipeline=$true)]$InputObject) process { } }
+        function New-NetFirewallRule { param([string]$DisplayName, [string]$Direction, [string]$Action, [string[]]$RemoteAddress, [string]$Protocol, [string]$Profile, $Enabled, [string]$Description, [string]$Program, [string]$RemoteDynamicKeywordAddresses) }
+        function Get-MpComputerStatus { }
+        function Get-MpPreference { }
+
+        Invoke-Expression $addManifest.Extent.Text
+        Invoke-Expression $resolveDomain.Extent.Text
+        Invoke-Expression $getRoutePrint.Extent.Text
+        Invoke-Expression $addRoute.Extent.Text
+        Invoke-Expression $testDynamicKeywords.Extent.Text
+        Invoke-Expression $getAdobeDynamicKeywords.Extent.Text
+        Invoke-Expression $blockFirewall.Extent.Text
+        Set-Item -Path function:Test-DynamicKeywordsAvailable -Value { return $false } -Force
+
+        Mock Resolve-TelemetryDomainAddresses { @([System.Net.IPAddress]::Parse('203.0.113.10')) }
+        Mock Get-RoutePrintOutput { @() }
+        Mock Add-PersistentNullRoute { }
+        Mock Get-NetFirewallRule {
+            @(
+                [pscustomobject]@{ DisplayName = 'Block Adobe Telemetry - Outbound IPs (TCP)' }
+                [pscustomobject]@{ DisplayName = 'Block Adobe Telemetry - CCXProcess (C:\ccx)' }
+                [pscustomobject]@{ DisplayName = 'Block Adobe Telemetry - AdobeIPCBroker (C:\ipc)' }
+            )
+        }
+        Mock Remove-NetFirewallRule { }
+        Mock New-NetFirewallRule { }
+        try {
+            Block-AdobeFirewall
+        } finally {
+            Remove-Item -Path $script:LogFile -Force -ErrorAction SilentlyContinue
+        }
+
+        # Only the non-CCX/non-IPC rule should be removed by the firewall cleanup
+        Assert-MockCalled Remove-NetFirewallRule -Times 1 -Exactly
+        Assert-MockCalled Remove-NetFirewallRule -ParameterFilter { $InputObject.DisplayName -like '*CCXProcess*' } -Times 0 -Exactly
+        Assert-MockCalled Remove-NetFirewallRule -ParameterFilter { $InputObject.DisplayName -like '*AdobeIPCBroker*' } -Times 0 -Exactly
+    }
+
     It 'removes firewall rules, dynamic keywords, and routes during manifest undo in reverse order' {
         $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
         $manifestUndo = $funcDefs | Where-Object { $_.Name -eq 'Invoke-ManifestUndo' }
