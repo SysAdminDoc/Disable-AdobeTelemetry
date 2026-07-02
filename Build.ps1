@@ -131,6 +131,10 @@ foreach ($section in $sections.Keys) {
     $updated = [regex]::Replace($updated, $pattern, $replacement)
 }
 
+# Normalize to CRLF so generated LF-joined blocks match the repository's
+# line-ending convention (prevents a spurious out-of-sync report on CRLF checkouts).
+$updated = ($updated -replace "`r`n", "`n") -replace "`n", "`r`n"
+
 if ($Verify) {
     if ($updated -eq $content) {
         Write-Host 'Inventories are in sync.' -ForegroundColor Green
