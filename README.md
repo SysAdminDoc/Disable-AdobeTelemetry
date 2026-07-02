@@ -211,6 +211,10 @@ Deploy `Disable-AdobeTelemetry.ps1` to the endpoint (e.g. `%ProgramData%\Disable
 
 For the cleanest run, close all Adobe applications before executing. If any rename operations report "file locked," reboot and re-run the script before opening any Adobe apps — the IFEO redirects will already be active as a failsafe in the meantime.
 
+### Update Notifications
+
+On each run the script performs a **non-blocking** check for a newer GitHub release. It reports from a local cache (refreshed at most once every 24 hours in a background job), so it never delays the run or blocks on the network. If a newer version is available, a warning with the releases URL is printed. The check is skipped in JSON status mode and never downloads anything automatically.
+
 ### DNS-over-HTTPS (DoH)
 
 Hosts-file sinkholing works at the OS resolver level, but **DNS-over-HTTPS bypasses it entirely** — a browser or the OS resolving names over an encrypted HTTPS channel never consults the hosts file. The script detects system auto-DoH, per-interface enforced DoH, and Edge/Chrome/Firefox DoH policies, and warns you when any are active. `-StatusOnly` reports DoH state under **Hosts File**. When DoH is enabled, rely on the firewall and persistent-route layers (which block by IP regardless of how the name was resolved) or disable DoH for full hosts-level coverage.

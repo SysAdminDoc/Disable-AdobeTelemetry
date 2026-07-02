@@ -1238,6 +1238,38 @@ Describe 'Audit Regression Tests' {
         $scriptContent | Should -Match '\$statusData\.EventLog'
     }
 
+    It 'update check is non-blocking, cached, and version-aware' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $upd = $funcDefs | Where-Object { $_.Name -eq 'Test-UpdateAvailable' }
+        $upd | Should -Not -BeNullOrEmpty
+        $body = $upd.Extent.Text
+        $body | Should -Match 'Start-Job'                 # non-blocking background refresh
+        $body | Should -Match 'update-check\.json'         # daily cache file
+        $body | Should -Match 'TotalHours -lt 24'          # 24h cache window
+        $body | Should -Match '\[version\]\$latest -gt \[version\]\$current'  # semver comparison
+        $body | Should -Match '-UseBasicParsing'           # CVE-2025-54100 safe
+
+        # Behavioral: newer cached tag warns, same tag does not
+        function Write-Status { param($Message, $Type) $script:__updMsgs += ,"$Type|$Message" }
+        $script:Version = '2.5.0'
+        Invoke-Expression $body
+        $cachePath = Join-Path (Join-Path $env:APPDATA 'Disable-AdobeTelemetry') 'update-check.json'
+        try {
+            $script:__updMsgs = @()
+            @{ LatestTag = 'v9.9.9'; CheckedUtc = [datetime]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content $cachePath -Encoding UTF8
+            Test-UpdateAvailable
+            ($script:__updMsgs -join ' ') | Should -Match 'Update available: v9.9.9'
+
+            $script:__updMsgs = @()
+            @{ LatestTag = 'v2.5.0'; CheckedUtc = [datetime]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content $cachePath -Encoding UTF8
+            Test-UpdateAvailable
+            ($script:__updMsgs -join ' ') | Should -Not -Match 'Update available'
+        } finally {
+            Get-Job -ErrorAction SilentlyContinue | Remove-Job -Force -ErrorAction SilentlyContinue
+            Remove-Item $cachePath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     It 'JSON status mode suppresses the console banner' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Match '\$jsonStatus = \$StatusOnly -and \(\$OutputFormat -eq ''JSON''\)'
