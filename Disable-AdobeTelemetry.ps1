@@ -3399,29 +3399,33 @@ if ($Launcher) {
     exit 0
 }
 
-Write-Host ''
-Write-Host '  =============================================' -ForegroundColor Cyan
-Write-Host "   Disable-AdobeTelemetry $script:DisplayVersion" -ForegroundColor White
-Write-Host '   Comprehensive Adobe GrowthSDK + Telemetry' -ForegroundColor White
-Write-Host '   Removal and Blocking Utility' -ForegroundColor White
-Write-Host '  =============================================' -ForegroundColor Cyan
-
-if ($DryRun) {
+# Suppress console banner in JSON status mode so stdout is pure JSON (fleet parsing)
+$jsonStatus = $StatusOnly -and ($OutputFormat -eq 'JSON')
+if (-not $jsonStatus) {
     Write-Host ''
-    Write-Host '  *** DRY RUN MODE - No changes will be made ***' -ForegroundColor Magenta
-}
+    Write-Host '  =============================================' -ForegroundColor Cyan
+    Write-Host "   Disable-AdobeTelemetry $script:DisplayVersion" -ForegroundColor White
+    Write-Host '   Comprehensive Adobe GrowthSDK + Telemetry' -ForegroundColor White
+    Write-Host '   Removal and Blocking Utility' -ForegroundColor White
+    Write-Host '  =============================================' -ForegroundColor Cyan
 
-if ($ShowRationale) {
-    Write-Host '  Show rationale: enabled' -ForegroundColor Yellow
-}
-if ($Profile -ne 'Standard') {
-    Write-Host "  Profile: $Profile" -ForegroundColor Yellow
-}
-if ($Only -and $Only.Count -gt 0) {
-    Write-Host "  Phases: $($Only -join ', ')" -ForegroundColor Yellow
-}
-if ($Skip -and $Skip.Count -gt 0) {
-    Write-Host "  Skipping: $($Skip -join ', ')" -ForegroundColor Yellow
+    if ($DryRun) {
+        Write-Host ''
+        Write-Host '  *** DRY RUN MODE - No changes will be made ***' -ForegroundColor Magenta
+    }
+
+    if ($ShowRationale) {
+        Write-Host '  Show rationale: enabled' -ForegroundColor Yellow
+    }
+    if ($Profile -ne 'Standard') {
+        Write-Host "  Profile: $Profile" -ForegroundColor Yellow
+    }
+    if ($Only -and $Only.Count -gt 0) {
+        Write-Host "  Phases: $($Only -join ', ')" -ForegroundColor Yellow
+    }
+    if ($Skip -and $Skip.Count -gt 0) {
+        Write-Host "  Skipping: $($Skip -join ', ')" -ForegroundColor Yellow
+    }
 }
 
 # Initialize log
