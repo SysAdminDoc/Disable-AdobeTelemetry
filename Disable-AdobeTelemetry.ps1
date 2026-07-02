@@ -149,13 +149,18 @@ $script:ManifestPath = Join-Path $script:ManifestDir 'undo-manifest.json'
 $script:UpstreamCachePath = Join-Path $script:ManifestDir 'upstream-domains-cache.json'
 $script:ManifestActions = @()
 
+$script:AppDataInitialized = $false
 function Initialize-AppDataDirectory {
+    # Called on every log message; short-circuit after the first successful init so we
+    # don't stat the filesystem twice per line for the life of the run.
+    if ($script:AppDataInitialized) { return }
     if (-not (Test-Path $script:ManifestDir)) {
         New-Item -Path $script:ManifestDir -ItemType Directory -Force | Out-Null
     }
     if (-not (Test-Path $script:LogDir)) {
         New-Item -Path $script:LogDir -ItemType Directory -Force | Out-Null
     }
+    $script:AppDataInitialized = $true
 }
 
 function Add-ManifestAction {
