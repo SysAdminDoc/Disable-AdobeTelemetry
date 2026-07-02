@@ -221,11 +221,13 @@ if (-not $Only -and -not $Skip -and $Profile -eq 'Minimal') {
 
 function Test-PhaseEnabled {
     param([string]$Phase)
+    # -Skip always wins, including when combined with -Only, so that
+    # `-Only Firewall,Hosts -Skip Hosts` runs only Firewall (not Hosts).
+    if ($Skip -and $Skip.Count -gt 0 -and ($Skip -contains $Phase)) {
+        return $false
+    }
     if ($Only -and $Only.Count -gt 0) {
         return ($Only -contains $Phase)
-    }
-    if ($Skip -and $Skip.Count -gt 0) {
-        return ($Skip -notcontains $Phase)
     }
     return $true
 }
