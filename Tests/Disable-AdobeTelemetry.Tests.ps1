@@ -1182,6 +1182,28 @@ Describe 'Audit Regression Tests' {
         Remove-Item -Path $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 
+    It 'hosts ACL lock is opt-in, reversible, and denies SYSTEM write' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        # Opt-in switch exists
+        $scriptContent | Should -Match '\[switch\]\$LockHostsFile'
+        # Gated behind the switch and denies SYSTEM write
+        $scriptContent | Should -Match 'if \(\$LockHostsFile\)'
+        $scriptContent | Should -Match "LocalSystemSid"
+        $scriptContent | Should -Match "'WriteData,AppendData,Delete', 'Deny'"
+        # Recorded for undo and handled by both undo paths
+        $scriptContent | Should -Match "Add-ManifestAction -Phase 'Hosts' -Action 'LockHostsAcl'"
+        $scriptContent | Should -Match "'LockHostsAcl' \{"
+        $scriptContent | Should -Match 'function Remove-HostsAclLock'
+    }
+
+    It 'hosts undo paths write BOM-free UTF-8' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $byMarker = $funcDefs | Where-Object { $_.Name -eq 'Remove-HostsBlockByMarker' }
+        $byMarker | Should -Not -BeNullOrEmpty
+        $byMarker.Extent.Text | Should -Match 'UTF8Encoding\(\$false\)'
+        $byMarker.Extent.Text | Should -Not -Match 'Set-Content.*-Encoding UTF8'
+    }
+
     It 'Test-DohEnabled returns a well-formed result without false positives from DoH templates' {
         $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
         $dohFunc = $funcDefs | Where-Object { $_.Name -eq 'Test-DohEnabled' }
