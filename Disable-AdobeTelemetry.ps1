@@ -878,10 +878,10 @@ function Remove-GrowthSDK {
             }
         }
 
-        # Handle additional telemetry paths
+        # Handle additional telemetry paths (both files, e.g. opm.db, and directories)
         foreach ($relPath in $AdditionalPaths) {
             $targetPath = Join-Path $localLow $relPath
-            if (Test-Path $targetPath -PathType Container) {
+            if (Test-Path $targetPath) {
                 if ($DryRun) {
                     Write-Status "Would remove $relPath for $($userProf.Name)" -Type DryRun
                 } else {

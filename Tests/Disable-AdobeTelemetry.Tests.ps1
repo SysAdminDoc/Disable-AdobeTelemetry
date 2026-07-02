@@ -1149,6 +1149,15 @@ Describe 'Audit Regression Tests' {
         }
     }
 
+    It 'GrowthSDK additional-path cleanup handles files, not just directories' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        # The AdditionalPaths loop must not gate removal on -PathType Container,
+        # or file entries like opm.db are never cleaned.
+        $loop = [regex]::Match($scriptContent, '(?s)foreach \(\$relPath in \$AdditionalPaths\).*?Remove-Item \$targetPath')
+        $loop.Success | Should -BeTrue
+        $loop.Value | Should -Not -Match '\$targetPath -PathType Container'
+    }
+
     It 'legacy undo includes CreativeCloud registry path' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Match 'Policies\\Adobe\\CreativeCloud'
