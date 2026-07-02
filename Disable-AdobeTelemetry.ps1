@@ -1147,8 +1147,12 @@ function Block-AdobeFirewall {
     Write-Status 'Creating firewall rules to block Adobe telemetry' -Type Header
     Write-Rationale 'DNS-level blocking (hosts file) can be bypassed by hardcoded IPs or DNS-over-HTTPS. Firewall rules block by resolved IP (TCP+UDP) and by program path as a defense-in-depth layer. Persistent null routes add a third layer that survives firewall resets.'
 
-    # Idempotent: remove existing rules from a previous run to avoid duplicates
-    $existing = Get-NetFirewallRule -DisplayName 'Block Adobe Telemetry*' -ErrorAction SilentlyContinue
+    # Idempotent: remove existing rules from a previous run to avoid duplicates.
+    # Exclude CCXProcess and AdobeIPCBroker rules, which are created by their own
+    # earlier phases and manage their own idempotency; the wildcard would otherwise
+    # delete rules just created in this same run.
+    $existing = Get-NetFirewallRule -DisplayName 'Block Adobe Telemetry*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -notlike '*CCXProcess*' -and $_.DisplayName -notlike '*AdobeIPCBroker*' }
     if ($existing) {
         if ($DryRun) {
             Write-Status "Would remove $(@($existing).Count) previous firewall rules before recreating" -Type DryRun
@@ -1527,6 +1531,11 @@ function Disable-CCXProcess {
     }
 
     # Block it in firewall by program path (in case it ever gets restored)
+    # Idempotent: remove this phase's own rules from a previous run first.
+    if (-not $DryRun) {
+        Get-NetFirewallRule -DisplayName 'Block Adobe Telemetry - CCXProcess*' -ErrorAction SilentlyContinue |
+            Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    }
     foreach ($ccxDir in $ccxPaths) {
         $ccxExe = Join-Path $ccxDir 'CCXProcess.exe'
         $disabledExe = Join-Path $ccxDir 'CCXProcess.exe.disabled'
@@ -1583,6 +1592,11 @@ function Disable-AdobeIPCBroker {
         "${env:ProgramFiles(x86)}\Common Files\Adobe\Adobe Desktop Common\IPCBox"
     )
 
+    # Idempotent: remove this phase's own rules from a previous run first.
+    if (-not $DryRun) {
+        Get-NetFirewallRule -DisplayName 'Block Adobe Telemetry - AdobeIPCBroker*' -ErrorAction SilentlyContinue |
+            Remove-NetFirewallRule -ErrorAction SilentlyContinue
+    }
     foreach ($ipcDir in $ipcPaths) {
         if (-not (Test-Path $ipcDir)) { continue }
 
