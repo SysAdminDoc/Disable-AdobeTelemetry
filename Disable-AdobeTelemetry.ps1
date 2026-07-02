@@ -2739,6 +2739,12 @@ function Get-StatusData {
     $wdTask = Get-ScheduledTask -TaskName $script:WatchdogTaskName -ErrorAction SilentlyContinue
     if ($wdTask) {
         $statusData.Watchdog = @{ Installed = $true; State = "$($wdTask.State)" }
+        $wdInfo = Get-ScheduledTaskInfo -TaskName $script:WatchdogTaskName -ErrorAction SilentlyContinue
+        if ($wdInfo) {
+            $statusData.Watchdog.LastRunTime   = if ($wdInfo.LastRunTime)  { $wdInfo.LastRunTime.ToString('o') } else { $null }
+            $statusData.Watchdog.NextRunTime   = if ($wdInfo.NextRunTime)  { $wdInfo.NextRunTime.ToString('o') } else { $null }
+            $statusData.Watchdog.LastTaskResult = $wdInfo.LastTaskResult
+        }
     }
 
     $eventSourceExists = $false
@@ -2956,6 +2962,14 @@ function Show-Status {
     Write-Host '  --- Watchdog ---' -ForegroundColor Cyan
     if ($data.Watchdog.Installed) {
         Write-Host "    $($script:WatchdogTaskName) : $($data.Watchdog.State)" -ForegroundColor Green
+        $lastRun = if ($data.Watchdog.LastRunTime) { $data.Watchdog.LastRunTime } else { 'never' }
+        $nextRun = if ($data.Watchdog.NextRunTime) { $data.Watchdog.NextRunTime } else { 'n/a' }
+        Write-Host "    Last run: $lastRun" -ForegroundColor Gray
+        Write-Host "    Next run: $nextRun" -ForegroundColor Gray
+        if ($null -ne $data.Watchdog.LastTaskResult) {
+            $resColor = if ($data.Watchdog.LastTaskResult -eq 0) { 'Green' } else { 'Yellow' }
+            Write-Host "    Last result code: $($data.Watchdog.LastTaskResult)" -ForegroundColor $resColor
+        }
     } else {
         Write-Host "    $($script:WatchdogTaskName) : Not installed" -ForegroundColor DarkGray
     }
