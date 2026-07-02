@@ -2586,6 +2586,7 @@ function Get-StatusData {
         Registry   = @()
         Startup    = @()
         Watchdog   = @{ Installed = $false; State = 'NotInstalled' }
+        EventLog   = @{ SourceExists = $false; Log = 'Application'; Source = 'Disable-AdobeTelemetry' }
         Verification = $null
     }
 
@@ -2698,6 +2699,10 @@ function Get-StatusData {
     if ($wdTask) {
         $statusData.Watchdog = @{ Installed = $true; State = "$($wdTask.State)" }
     }
+
+    $eventSourceExists = $false
+    try { $eventSourceExists = [System.Diagnostics.EventLog]::SourceExists('Disable-AdobeTelemetry') } catch { }
+    $statusData.EventLog = @{ SourceExists = $eventSourceExists; Log = 'Application'; Source = 'Disable-AdobeTelemetry' }
 
     $statusData.Verification = Get-PostApplyVerificationData -StatusData $statusData
 
@@ -2897,9 +2902,44 @@ function Show-Status {
     }
 
     Write-Host ''
+    Write-Host '  --- Event Log ---' -ForegroundColor Cyan
+    if ($data.EventLog.SourceExists) {
+        Write-Host "    Application source '$($data.EventLog.Source)': Registered" -ForegroundColor Green
+    } else {
+        Write-Host "    Application source '$($data.EventLog.Source)': Not registered (created on first apply)" -ForegroundColor DarkGray
+    }
+
+    Write-Host ''
 }
 
 # ── Summary Function ──────────────────────────────────────────────────────────
+
+function Write-SummaryEvent {
+    # Write a run-summary entry to the Windows Application event log for fleet/SIEM
+    # visibility. EventIDs: 1000=success, 2000=partial, 3000=failure, 4000=undo.
+    param(
+        [ValidateSet('Success','Partial','Failure','Undo')]
+        [string]$Result,
+        [string]$Message
+    )
+    if ($DryRun) { return }
+    $eventMap = @{
+        Success = @{ Id = 1000; Type = 'Information' }
+        Partial = @{ Id = 2000; Type = 'Warning' }
+        Failure = @{ Id = 3000; Type = 'Error' }
+        Undo    = @{ Id = 4000; Type = 'Information' }
+    }
+    $e = $eventMap[$Result]
+    try {
+        if (-not [System.Diagnostics.EventLog]::SourceExists('Disable-AdobeTelemetry')) {
+            New-EventLog -LogName Application -Source 'Disable-AdobeTelemetry' -ErrorAction Stop
+        }
+        Write-EventLog -LogName Application -Source 'Disable-AdobeTelemetry' `
+            -EventId $e.Id -EntryType $e.Type -Message $Message -ErrorAction Stop
+    } catch {
+        Write-Status "Could not write Application event log entry: $($_.Exception.Message)" -Type Warning
+    }
+}
 
 function Show-Summary {
     $c = $script:Counters
@@ -3416,6 +3456,7 @@ if ($Undo) {
     if (Test-Path $script:ManifestPath) {
         Remove-Item -Path $script:ManifestPath -Force -ErrorAction SilentlyContinue
     }
+    Write-SummaryEvent -Result Undo -Message "Undo completed via $(if ($manifestHandled) { 'manifest' } else { 'legacy' }) path. All recorded telemetry blocks reversed."
     exit 0
 }
 
@@ -3465,10 +3506,13 @@ Write-Host "  JSONL log saved to: $script:JsonLogFile" -ForegroundColor Gray
 Write-Host ''
 
 # Exit codes: 0=success/dry-run, 1=fatal, 3=partial success, 3010=success+reboot recommended
+$eventDetail = "Domains sinkholed: $($script:Counters.DomainsBlocked); firewall rules: $($script:Counters.FirewallRulesAdded); services disabled: $($script:Counters.ServicesDisabled); tasks disabled: $($script:Counters.TasksDisabled); verification failures: $($script:Counters.VerificationFailures)."
 if ($DryRun) {
     exit 0
 } elseif ($script:Counters.Errors -gt 0) {
+    Write-SummaryEvent -Result Partial -Message "Apply completed with $($script:Counters.Errors) error(s). $eventDetail"
     exit 3
 } else {
+    Write-SummaryEvent -Result Success -Message "Apply completed successfully. $eventDetail"
     exit 3010
 }

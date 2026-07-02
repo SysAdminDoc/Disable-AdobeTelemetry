@@ -1219,6 +1219,25 @@ Describe 'Audit Regression Tests' {
         $dohFunc.Extent.Text | Should -Match 'DohInterfaceSettings'
     }
 
+    It 'writes Application event log summary with correct EventIDs' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match 'function Write-SummaryEvent'
+        # EventID mapping
+        $scriptContent | Should -Match 'Success = @\{ Id = 1000'
+        $scriptContent | Should -Match 'Partial = @\{ Id = 2000'
+        $scriptContent | Should -Match 'Failure = @\{ Id = 3000'
+        $scriptContent | Should -Match 'Undo    = @\{ Id = 4000'
+        # Wired into apply (success + partial) and undo exit paths
+        $scriptContent | Should -Match 'Write-SummaryEvent -Result Success'
+        $scriptContent | Should -Match 'Write-SummaryEvent -Result Partial'
+        $scriptContent | Should -Match 'Write-SummaryEvent -Result Undo'
+        # Does not emit events for dry runs
+        $fn = [regex]::Match($scriptContent, '(?s)function Write-SummaryEvent \{.*?\n\}')
+        $fn.Value | Should -Match 'if \(\$DryRun\) \{ return \}'
+        # Status reports the event source
+        $scriptContent | Should -Match '\$statusData\.EventLog'
+    }
+
     It 'status data reports DoH bypass state' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Match '\$statusData\.HostsFile\.DohEnabled'
