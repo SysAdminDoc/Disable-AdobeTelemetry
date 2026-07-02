@@ -819,11 +819,13 @@ function Remove-GrowthSDK {
                 $script:Counters.GrowthSDKBlocked++
                 continue
             }
-            # Nuke the directory with retry for slow/encrypted disks
+            # Nuke the directory with retry for slow/encrypted disks or transient locks
             Remove-Item $growthDir -Recurse -Force -ErrorAction SilentlyContinue
             $retryMs = 200
             for ($attempt = 0; $attempt -lt 5 -and (Test-Path $growthDir); $attempt++) {
                 Start-Sleep -Milliseconds $retryMs
+                # Re-attempt the delete each iteration - a lock may have cleared
+                Remove-Item $growthDir -Recurse -Force -ErrorAction SilentlyContinue
                 $retryMs *= 2
             }
 
