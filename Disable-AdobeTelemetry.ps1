@@ -2885,8 +2885,25 @@ function Invoke-PostApplyVerification {
     }
 }
 
+function Write-CheckLine {
+    # Uniform status line: green when $Ok, else $BadColor. Centralizes the repeated
+    # colored-output pattern for boolean status sections.
+    param(
+        [string]$Label,
+        [bool]$Ok,
+        [string]$OkText,
+        [string]$BadText,
+        [string]$BadColor = 'Yellow'
+    )
+    $text = if ($Ok) { $OkText } else { $BadText }
+    $color = if ($Ok) { 'Green' } else { $BadColor }
+    Write-Host "    ${Label}: $text" -ForegroundColor $color
+}
+
 function Show-Status {
-    $data = Get-StatusData
+    param($Data)
+    if (-not $Data) { $Data = Get-StatusData }
+    $data = $Data
 
     if ($OutputFormat -eq 'JSON') {
         $data | ConvertTo-Json -Depth 5
@@ -2938,16 +2955,11 @@ function Show-Status {
 
     Write-Host ''
     Write-Host '  --- Hosts File ---' -ForegroundColor Cyan
-    if ($data.HostsFile.BlockPresent) {
-        Write-Host '    Adobe telemetry block: Present' -ForegroundColor Green
-    } else {
-        Write-Host '    Adobe telemetry block: Not present' -ForegroundColor Yellow
-    }
-    if ($data.HostsFile.DohEnabled) {
-        Write-Host "    DNS-over-HTTPS: ENABLED - hosts blocking bypassed ($($data.HostsFile.DohSources -join '; '))" -ForegroundColor Yellow
-    } else {
-        Write-Host '    DNS-over-HTTPS: Not detected (hosts blocking effective)' -ForegroundColor Green
-    }
+    Write-CheckLine -Label 'Adobe telemetry block' -Ok $data.HostsFile.BlockPresent -OkText 'Present' -BadText 'Not present'
+    # DoH "ok" state is the ABSENCE of DoH (hosts blocking effective)
+    Write-CheckLine -Label 'DNS-over-HTTPS' -Ok (-not $data.HostsFile.DohEnabled) `
+        -OkText 'Not detected (hosts blocking effective)' `
+        -BadText "ENABLED - hosts blocking bypassed ($($data.HostsFile.DohSources -join '; '))"
 
     Write-Host ''
     Write-Host '  --- IFEO Redirects ---' -ForegroundColor Cyan
@@ -3020,11 +3032,8 @@ function Show-Status {
 
     Write-Host ''
     Write-Host '  --- Event Log ---' -ForegroundColor Cyan
-    if ($data.EventLog.SourceExists) {
-        Write-Host "    Application source '$($data.EventLog.Source)': Registered" -ForegroundColor Green
-    } else {
-        Write-Host "    Application source '$($data.EventLog.Source)': Not registered (created on first apply)" -ForegroundColor DarkGray
-    }
+    Write-CheckLine -Label "Application source '$($data.EventLog.Source)'" -Ok $data.EventLog.SourceExists `
+        -OkText 'Registered' -BadText 'Not registered (created on first apply)' -BadColor 'DarkGray'
 
     Write-Host ''
 }

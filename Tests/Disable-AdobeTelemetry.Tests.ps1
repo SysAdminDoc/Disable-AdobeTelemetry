@@ -1298,6 +1298,40 @@ Describe 'Audit Regression Tests' {
         $rContent | Should -Match '\$code -eq 0 -or \$code -eq 3010'
     }
 
+    It 'Show-Status accepts injected data and renders boolean sections via Write-CheckLine' {
+        $defs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $checkLine = $defs | Where-Object { $_.Name -eq 'Write-CheckLine' }
+        $showStatus = $defs | Where-Object { $_.Name -eq 'Show-Status' }
+        $checkLine | Should -Not -BeNullOrEmpty
+        $showStatus | Should -Not -BeNullOrEmpty
+        # Show-Status must accept injected data (testability) and default to Get-StatusData
+        $showStatus.Extent.Text | Should -Match 'param\(\$Data\)'
+        $showStatus.Extent.Text | Should -Match 'if \(-not \$Data\) \{ \$Data = Get-StatusData \}'
+        # Boolean sections use the helper
+        $showStatus.Extent.Text | Should -Match "Write-CheckLine -Label 'Adobe telemetry block'"
+
+        function Write-Status { param($Message, $Type) }
+        Invoke-Expression $checkLine.Extent.Text
+        Invoke-Expression $showStatus.Extent.Text
+        $OutputFormat = 'Text'; $script:WatchdogTaskName = 'wd'
+        $script:__cap = New-Object System.Collections.ArrayList
+        function Write-Host { param([Parameter(ValueFromRemainingArguments=$true)]$args) [void]$script:__cap.Add(($args -join ' ')) }
+        $data = [ordered]@{
+            Services=@(); Tasks=@(); GrowthSDK=@()
+            Firewall=@{ RuleCount=1; DynamicKeywords=@{ Available=$false; Count=0; Patterns=@() } }; Connections=@{ Count=0 }
+            HostsFile=@{ BlockPresent=$true; DohEnabled=$false; DohSources=@() }; IFEO=@()
+            Neutralization=@{ CCXProcess=@(); StartupShortcutsDisabled=0; NullRoutes=0 }
+            Registry=@(); Startup=@(); Watchdog=@{ Installed=$false; State='NotInstalled' }
+            EventLog=@{ SourceExists=$true; Log='Application'; Source='Disable-AdobeTelemetry' }
+        }
+        Show-Status -Data $data
+        Remove-Item function:Write-Host -ErrorAction SilentlyContinue
+        $text = $script:__cap -join "`n"
+        $text | Should -Match 'Adobe telemetry block: Present'
+        $text | Should -Match 'DNS-over-HTTPS: Not detected'
+        $text | Should -Match "Application source 'Disable-AdobeTelemetry': Registered"
+    }
+
     It 'status data reports watchdog last/next run and last result code' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Match 'Get-ScheduledTaskInfo -TaskName \$script:WatchdogTaskName'
