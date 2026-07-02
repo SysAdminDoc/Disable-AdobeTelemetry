@@ -1139,6 +1139,16 @@ Describe 'Audit Regression Tests' {
         $scriptContent | Should -Not -Match '-Encoding ASCII'
     }
 
+    It 'all web requests use -UseBasicParsing (CVE-2025-54100 guard)' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        # Each Invoke-WebRequest / Invoke-RestMethod invocation, up to the end of its
+        # (possibly line-continued) statement, must contain -UseBasicParsing.
+        $calls = [regex]::Matches($scriptContent, '(?s)Invoke-(?:WebRequest|RestMethod)\b.*?(?=(?<!`)\r?\n)')
+        foreach ($call in $calls) {
+            $call.Value | Should -Match '-UseBasicParsing' -Because "web call must not use the legacy IE DOM parser: $($call.Value.Trim())"
+        }
+    }
+
     It 'legacy undo includes CreativeCloud registry path' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Match 'Policies\\Adobe\\CreativeCloud'
