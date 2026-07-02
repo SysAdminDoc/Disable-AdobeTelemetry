@@ -2588,6 +2588,7 @@ function Get-StatusData {
         Connections = @{ Count = 0 }
         HostsFile  = @{ BlockPresent = $false }
         IFEO       = @()
+        Neutralization = @{ CCXProcess = @(); StartupShortcutsDisabled = 0; NullRoutes = 0 }
         Registry   = @()
         Startup    = @()
         Watchdog   = @{ Installed = $false; State = 'NotInstalled' }
@@ -2664,6 +2665,41 @@ function Get-StatusData {
         }
         $statusData.IFEO += @{ Executable = $ifeoExe; Active = $active; Debugger = $debugger }
     }
+
+    # Neutralization artifacts: CCXProcess rename, startup shortcuts, persistent null routes
+    $ccxPaths = @(
+        "$env:ProgramFiles\Adobe\Adobe Creative Cloud Experience"
+        "${env:ProgramFiles(x86)}\Adobe\Adobe Creative Cloud Experience"
+    )
+    foreach ($ccxDir in $ccxPaths) {
+        if (-not (Test-Path $ccxDir)) { continue }
+        $ccxExe = Join-Path $ccxDir 'CCXProcess.exe'
+        $ccxDisabled = Join-Path $ccxDir 'CCXProcess.exe.disabled'
+        $renamed = ((Test-Path $ccxDisabled) -and -not (Test-Path $ccxExe))
+        $statusData.Neutralization.CCXProcess += @{ Path = $ccxDir; Renamed = $renamed; OriginalPresent = (Test-Path $ccxExe) }
+    }
+
+    $startupFolders = @()
+    $commonStartup = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Startup'
+    if (Test-Path $commonStartup) { $startupFolders += $commonStartup }
+    foreach ($userProf in (Get-ChildItem (Split-Path $env:USERPROFILE) -Directory -ErrorAction SilentlyContinue)) {
+        $sf = Join-Path $userProf.FullName 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'
+        if (Test-Path $sf) { $startupFolders += $sf }
+    }
+    $disabledShortcutCount = 0
+    foreach ($folder in ($startupFolders | Sort-Object -Unique)) {
+        $disabledShortcutCount += @(Get-ChildItem -Path $folder -Filter '*.lnk.disabled' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match 'Adobe|Creative Cloud|CCX|CCLibrary|CoreSync' }).Count
+    }
+    $statusData.Neutralization.StartupShortcutsDisabled = $disabledShortcutCount
+
+    # Persistent null routes: /32 routes sinkholed to 0.0.0.0 (best-effort count)
+    $nullRouteCount = 0
+    try {
+        $nullRouteCount = @(Get-NetRoute -ErrorAction SilentlyContinue |
+            Where-Object { $_.NextHop -eq '0.0.0.0' -and $_.DestinationPrefix -like '*/32' }).Count
+    } catch { }
+    $statusData.Neutralization.NullRoutes = $nullRouteCount
 
     foreach ($check in (Get-RegistryPolicyStatusChecks)) {
         $val = $null
@@ -2874,6 +2910,24 @@ function Show-Status {
             Write-Host "    $($ifeo.Executable) IFEO: Not set" -ForegroundColor Yellow
         }
     }
+
+    Write-Host ''
+    Write-Host '  --- Neutralization ---' -ForegroundColor Cyan
+    if (@($data.Neutralization.CCXProcess).Count -gt 0) {
+        foreach ($ccx in $data.Neutralization.CCXProcess) {
+            if ($ccx.Renamed) {
+                Write-Host "    CCXProcess.exe: Renamed/disabled ($($ccx.Path))" -ForegroundColor Green
+            } elseif ($ccx.OriginalPresent) {
+                Write-Host "    CCXProcess.exe: PRESENT - not neutralized ($($ccx.Path))" -ForegroundColor Yellow
+            }
+        }
+    } else {
+        Write-Host '    CCXProcess.exe: install directory not found' -ForegroundColor DarkGray
+    }
+    $ssColor = if ($data.Neutralization.StartupShortcutsDisabled -gt 0) { 'Green' } else { 'DarkGray' }
+    Write-Host "    Startup shortcuts disabled: $($data.Neutralization.StartupShortcutsDisabled)" -ForegroundColor $ssColor
+    $nrColor = if ($data.Neutralization.NullRoutes -gt 0) { 'Green' } else { 'DarkGray' }
+    Write-Host "    Persistent null routes (/32 -> 0.0.0.0): $($data.Neutralization.NullRoutes)" -ForegroundColor $nrColor
 
     Write-Host ''
     Write-Host '  --- Registry Policies ---' -ForegroundColor Cyan

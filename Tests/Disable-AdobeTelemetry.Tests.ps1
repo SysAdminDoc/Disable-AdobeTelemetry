@@ -1298,6 +1298,16 @@ Describe 'Audit Regression Tests' {
         $rContent | Should -Match '\$code -eq 0 -or \$code -eq 3010'
     }
 
+    It 'status data reports neutralization artifacts (CCX rename, startup shortcuts, null routes)' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match '\$statusData\.Neutralization\.CCXProcess'
+        $scriptContent | Should -Match '\$statusData\.Neutralization\.StartupShortcutsDisabled'
+        $scriptContent | Should -Match '\$statusData\.Neutralization\.NullRoutes'
+        $scriptContent | Should -Match "Neutralization = @\{ CCXProcess = @\(\)"
+        # Rendered in the status report
+        $scriptContent | Should -Match '--- Neutralization ---'
+    }
+
     It 'status data reports DoH bypass state' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Match '\$statusData\.HostsFile\.DohEnabled'
