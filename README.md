@@ -26,34 +26,38 @@ Simply killing these processes or deleting their files is temporary — Adobe ap
 | **Disable Scheduled Tasks** | Disables all Adobe-related scheduled tasks (AdobeGCInvoker, Genuine Monitor, updaters, etc.) |
 | **Disable Services** | Stops and sets to Disabled: AGSService, AGMService, AdobeARMservice, AdobeUpdateService, CCXProcess |
 | **Registry Policies** | Sets `DisableUsageData`, `DisableGrowth`, `DisableAutoupdates`, `AgsDisabled`, and disables the usage framework under enterprise policy keys |
-| **Firewall Rules** | Resolves and blocks ~40 Adobe telemetry domains by IP (TCP+UDP), plus blocks known telemetry executables by program path |
+| **Firewall Rules** | Resolves and blocks the profile's Adobe telemetry domains (60 in Standard) by IP (TCP+UDP), plus blocks known telemetry executables by program path |
 | **Hosts File** | Sinkhole routes all Adobe telemetry/analytics domains to `0.0.0.0`, detects and removes Adobe WAM hosts injections, flushes DNS cache |
 | **Startup Entries** | Disables Adobe auto-run registry entries across HKLM and HKCU |
 
 ## Blocked Domains
 
-The script blocks outbound connections to the following Adobe telemetry and analytics endpoints:
+Domains are tiered by profile: **Minimal** (22 pure-telemetry domains), **Standard** (default, 60 domains — adds messaging, crash reporting, Firefly/GenAI, Sensei, genuine/license checks), and **Aggressive** (75 domains — adds fonts/Typekit, CC extensions, home/search, RUM). The canonical lists live in [`Data/Inventories.psd1`](Data/Inventories.psd1). Activation and download endpoints (`ims-na1.adobelogin.com`, `auth.services.adobe.com`, `ccmdls.adobe.com`, `ardownload2.adobe.com`, `fonts.adobe.com`, etc.) are safelisted and never blocked, so licensing and sign-in keep working.
+
+The Standard profile blocks outbound connections to:
 
 ```
-cc-api-data.adobe.io         notify.adobe.io              prod.adobegc.com
-ada.adobe.io                 assets.adobedtm.com          geo2.adobe.com
-pv2.adobe.com                lcs-cops.adobe.io            lcs-robs.adobe.io
-lcs-ulecs.adobe.io           sstats.adobe.com             stats.adobe.com
-ic.adobe.io                  cc-cdn.adobe.com             p13n.adobe.io
-platform.adobe.io            adobeid-na1.services.adobe.com
-na1r.services.adobe.com      hlrc.adobegenuine.com        genuine.adobe.com
-prod.adobegenuine.com        crs.cr.adobe.com             crlog-crcn.adobe.com
-hbrcv.adobe.com              fp.adobestats.io             adobe.demdex.net
-adobedc.demdex.net           odin.adobe.com               armmf.adobe.com
-aepxlg.adobe.com             utut-service.adobe.com       senseimds.adobe.io
-cai-splunk-proxy.adobe.io    client.messaging.adobe.com   server.messaging.adobe.com
-ui.messaging.adobe.com       detect-ccd.creativecloud.adobe.com
-prod-rel-ffc-ccm.oobesaas.adobe.com
-firefly-ae.adobe.io          fire-fly.adobe.io            hz-telemetry.adobe.io
-hz-telemetry-next.adobe.io   sensei-irl1.adobe.io         senseicore-ew1.adobe.io
-dc-genai-access-provisioning-api.adobe.io                 o1383653.ingest.sentry.io
-r.openx.net                  dpm.demdex.net               bam.nr-data.net
-fls.doubleclick.net
+acp-ss-ew1.adobe.io          ada.adobe.io                 adobe.demdex.net
+adobe.tt.omtrdc.net          adobedc.demdex.net           adobeid-na1.services.adobe.com
+aepxlg.adobe.com             analytics.adobe.com          armmf.adobe.com
+assets.adobedtm.com          bam.nr-data.net              cai-splunk-proxy.adobe.io
+cc-api-data.adobe.io         cc-cdn.adobe.com             cc-collab.adobe.io
+cdn.experience.adobe.net     client.messaging.adobe.com   crlog-crcn.adobe.com
+crs.cr.adobe.com             dc-genai-access-provisioning-api.adobe.io
+dcs.adobedc.net              detect-ccd.creativecloud.adobe.com
+dpm.demdex.net               fire-fly.adobe.io            firefly-ae.adobe.io
+fls.doubleclick.net          fp.adobestats.io             genuine.adobe.com
+geo2.adobe.com               hbc.adobe.io                 hbrcv.adobe.com
+hz-telemetry-next.adobe.io   hz-telemetry.adobe.io        ic.adobe.io
+js-agent.newrelic.com        lcs-cops.adobe.io            lcs-entitlement.adobe.io
+lcs-robs.adobe.io            lcs-ulecs.adobe.io           na1r.services.adobe.com
+notify.adobe.io              o1383653.ingest.sentry.io    o1383653.ingest.us.sentry.io
+odin.adobe.com               p13n.adobe.io                platform.adobe.io
+prod-rel-ffc-ccm.oobesaas.adobe.com                       prod.adobegc.com
+prod.adobegenuine.com        r.openx.net                  scss-prod-ew1.adobesc.com
+scss.adobesc.com             sensei-irl1.adobe.io         senseicore-ew1.adobe.io
+senseimds.adobe.io           server.messaging.adobe.com   sstats.adobe.com
+stats.adobe.com              ui.messaging.adobe.com       utut-service.adobe.com
 ```
 
 ## The "Triple-Layer" Approach
