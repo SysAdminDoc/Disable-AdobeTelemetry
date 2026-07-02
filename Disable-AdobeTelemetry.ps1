@@ -1301,6 +1301,21 @@ function Block-AdobeFirewall {
             if ($found) { $adobeExePaths += $found.FullName }
         }
     }
+
+    # Aggressive: block EVERY .exe under the Adobe install paths, not just the curated
+    # telemetry list, so newly-added helpers are caught without a code change. This also
+    # blocks the primary creative apps' outbound traffic - that is the Aggressive intent.
+    if ($Profile -eq 'Aggressive') {
+        $walked = 0
+        foreach ($installPath in $script:AdobeInstallPaths) {
+            if (-not (Test-Path $installPath)) { continue }
+            foreach ($exe in (Get-ChildItem -Path $installPath -Filter '*.exe' -Recurse -ErrorAction SilentlyContinue)) {
+                $adobeExePaths += $exe.FullName
+                $walked++
+            }
+        }
+        Write-Status "Aggressive: discovered $walked executable(s) under Adobe install paths for firewall blocking" -Type Info
+    }
     $adobeExePaths = @($adobeExePaths | Sort-Object -Unique)
 
     $exeRulesCreated = 0

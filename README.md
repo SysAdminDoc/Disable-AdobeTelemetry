@@ -32,7 +32,7 @@ Simply killing these processes or deleting their files is temporary — Adobe ap
 
 ## Blocked Domains
 
-Domains are tiered by profile: **Minimal** (22 pure-telemetry domains), **Standard** (default, 60 domains — adds messaging, crash reporting, Firefly/GenAI, Sensei, genuine/license checks), and **Aggressive** (75 domains — adds fonts/Typekit, CC extensions, home/search, RUM). The canonical lists live in [`Data/Inventories.psd1`](Data/Inventories.psd1). Activation and download endpoints (`ims-na1.adobelogin.com`, `auth.services.adobe.com`, `ccmdls.adobe.com`, `ardownload2.adobe.com`, `fonts.adobe.com`, etc.) are safelisted and never blocked, so licensing and sign-in keep working.
+Domains are tiered by profile: **Minimal** (22 pure-telemetry domains), **Standard** (default, 60 domains — adds messaging, crash reporting, Firefly/GenAI, Sensei, genuine/license checks), and **Aggressive** (75 domains — adds fonts/Typekit, CC extensions, home/search, RUM). Aggressive also blocks the primary apps' outbound traffic (`Acrobat.exe`/`AcroRd32.exe`), recursively firewalls every `.exe` under the Adobe install paths, and blocks DNS-over-TLS (port 853). The canonical lists live in [`Data/Inventories.psd1`](Data/Inventories.psd1). Activation and download endpoints (`ims-na1.adobelogin.com`, `auth.services.adobe.com`, `ccmdls.adobe.com`, `ardownload2.adobe.com`, `fonts.adobe.com`, etc.) are safelisted and never blocked, so licensing and sign-in keep working.
 
 The Standard profile blocks outbound connections to:
 
