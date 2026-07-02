@@ -70,7 +70,7 @@
 
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.4.1
+    Version : 2.5.0
     Date    : 2026-07-01
 
     Exit codes:
@@ -144,7 +144,7 @@ if (-not $isAdmin) {
 
 $ErrorActionPreference = 'Continue'
 
-$script:DisplayVersion = 'v2.4.1'
+$script:DisplayVersion = 'v2.5.0'
 $script:Version = $script:DisplayVersion.TrimStart('v')
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
 $script:LogDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\logs'

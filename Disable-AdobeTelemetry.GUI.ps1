@@ -6,7 +6,7 @@
     with streaming log output. All operations run asynchronously to keep the UI responsive.
 .NOTES
     Author  : Matt (Maven Imaging)
-    Version : 2.4.1
+    Version : 2.5.0
     Date    : 2026-07-01
 #>
 
@@ -48,7 +48,7 @@ $colors = @{
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Disable-AdobeTelemetry v2.4.1"
+        Title="Disable-AdobeTelemetry v2.5.0"
         Width="800" Height="720"
         MinWidth="640" MinHeight="520"
         Background="$($colors.Base)"
@@ -242,7 +242,7 @@ $colors = @{
                                Foreground="$($colors.Subtext0)" FontSize="12" VerticalAlignment="Center"/>
                     <TextBlock x:Name="UpdateText" Grid.Column="1" Text="" Margin="0,0,12,0"
                                Foreground="$($colors.Yellow)" FontSize="11" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="VersionText" Grid.Column="2" Text="v2.4.1"
+                    <TextBlock x:Name="VersionText" Grid.Column="2" Text="v2.5.0"
                                Foreground="$($colors.Surface2)" FontSize="11" VerticalAlignment="Center"/>
                 </Grid>
             </StackPanel>
@@ -560,7 +560,7 @@ $plumbingStartButton.Add_Click({
                        -StatusMsg "Running plumbing test ($app, $minutes min)..."
 })
 
-Write-LogLine "  Disable-AdobeTelemetry GUI v2.4.1"
+Write-LogLine "  Disable-AdobeTelemetry GUI v2.5.0"
 Write-LogLine "  Script: $mainScript"
 if (-not (Test-Path $mainScript)) {
     Write-LogLine "  [!!] Main script not found. Place this GUI alongside Disable-AdobeTelemetry.ps1."
