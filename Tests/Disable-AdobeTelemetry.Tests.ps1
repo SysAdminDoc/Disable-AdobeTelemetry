@@ -1399,6 +1399,16 @@ Describe 'Audit Regression Tests' {
         $scriptContent | Should -Match 'Policies\\Adobe\\CreativeCloud'
     }
 
+    It 'blocks DNS-over-TLS (port 853) only under Aggressive profile' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $fw = $funcDefs | Where-Object { $_.Name -eq 'Block-AdobeFirewall' }
+        $body = $fw.Extent.Text
+        $body | Should -Match "if \(\`$Profile -eq 'Aggressive'\)"
+        $body | Should -Match '-RemotePort 853'
+        $body | Should -Match "Block Adobe Telemetry - DoT \`$proto 853"
+        $body | Should -Match "Add-ManifestAction -Phase 'Firewall' -Action 'AddFirewallRule'"
+    }
+
     It 'Acrobat/AcroRd32 outbound blocking is Aggressive-only' {
         $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
         $fw = $funcDefs | Where-Object { $_.Name -eq 'Block-AdobeFirewall' }

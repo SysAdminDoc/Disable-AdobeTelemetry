@@ -1333,6 +1333,32 @@ function Block-AdobeFirewall {
         Write-Status 'No known Adobe telemetry executables found on disk' -Type Warning
     }
 
+    # Aggressive: block outbound DNS-over-TLS (port 853). DoT bypasses hosts/route
+    # sinkholing the same way DoH does; blocking it forces resolution back through the
+    # system resolver that our hosts/route layers can sinkhole.
+    if ($Profile -eq 'Aggressive') {
+        if ($DryRun) {
+            Write-Status 'Would block outbound DNS-over-TLS (port 853, TCP+UDP)' -Type DryRun
+        } else {
+            foreach ($proto in @('TCP', 'UDP')) {
+                New-NetFirewallRule -DisplayName "Block Adobe Telemetry - DoT $proto 853" `
+                    -Direction Outbound `
+                    -Action Block `
+                    -Protocol $proto `
+                    -RemotePort 853 `
+                    -Profile Any `
+                    -Enabled True `
+                    -Description 'Blocks DNS-over-TLS so it cannot bypass hosts/route sinkholing (Aggressive profile).' |
+                    Out-Null
+                Add-ManifestAction -Phase 'Firewall' -Action 'AddFirewallRule' -Details @{
+                    DisplayName = "Block Adobe Telemetry - DoT $proto 853"
+                }
+                $script:Counters.FirewallRulesAdded++
+            }
+            Write-Status 'Blocked outbound DNS-over-TLS (port 853, TCP+UDP)' -Type Success
+        }
+    }
+
     # Add persistent null routes for resolved telemetry IPs (IPv4 only — route.exe does not support IPv6 persistent routes)
     if ($resolvedIPv4.Count -gt 0) {
         $routesAdded = 0
