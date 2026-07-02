@@ -188,6 +188,15 @@ Each apply/undo run also writes a structured JSONL log to `%APPDATA%\Disable-Ado
 
 A run-summary entry is also written to the **Windows Application event log** (source `Disable-AdobeTelemetry`) so SIEM/EDR pipelines can track outcomes without parsing files. Event IDs: `1000` = apply success, `2000` = apply partial (one or more phase errors), `3000` = failure, `4000` = undo. Dry runs do not write events. `-StatusOnly` reports whether the event source is registered.
 
+### Intune Proactive Remediation
+
+The [`fleet/`](fleet/) directory contains a detection/remediation script pair for Microsoft Intune (Proactive Remediations / device remediations):
+
+- **`fleet/Detect-AdobeTelemetry.ps1`** — runs the main script in `-StatusOnly -OutputFormat JSON`, evaluates stable compliance signals (hosts block present, firewall rules present, target services blocked), and exits `0` (compliant) or `1` (remediate).
+- **`fleet/Remediate-AdobeTelemetry.ps1`** — applies protections and maps the main script's exit codes (`0`/`3010` = success) to Intune's `0`/`1` convention.
+
+Deploy `Disable-AdobeTelemetry.ps1` to the endpoint (e.g. `%ProgramData%\Disable-AdobeTelemetry\`) or pass `-ScriptPath`; both wrappers auto-search common locations. Run them in the **system** context (64-bit) — no interactive elevation is required because SYSTEM is already elevated.
+
 ### Exit Codes
 
 | Code | Meaning |

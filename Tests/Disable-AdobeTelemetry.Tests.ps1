@@ -1238,6 +1238,34 @@ Describe 'Audit Regression Tests' {
         $scriptContent | Should -Match '\$statusData\.EventLog'
     }
 
+    It 'JSON status mode suppresses the console banner' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match '\$jsonStatus = \$StatusOnly -and \(\$OutputFormat -eq ''JSON''\)'
+        $scriptContent | Should -Match 'if \(-not \$jsonStatus\) \{'
+    }
+
+    It 'Intune fleet detection/remediation scripts exist with correct exit conventions' {
+        $detect = Join-Path $PSScriptRoot '..\fleet\Detect-AdobeTelemetry.ps1'
+        $remediate = Join-Path $PSScriptRoot '..\fleet\Remediate-AdobeTelemetry.ps1'
+        Test-Path $detect | Should -BeTrue
+        Test-Path $remediate | Should -BeTrue
+
+        $errs = $null
+        [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $detect), [ref]$null, [ref]$errs) | Out-Null
+        $errs | Should -BeNullOrEmpty
+        [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $remediate), [ref]$null, [ref]$errs) | Out-Null
+        $errs | Should -BeNullOrEmpty
+
+        $dContent = Get-Content $detect -Raw
+        $dContent | Should -Match '-StatusOnly -OutputFormat JSON'
+        $dContent | Should -Match 'exit 0'   # compliant
+        $dContent | Should -Match 'exit 1'   # remediate
+
+        $rContent = Get-Content $remediate -Raw
+        # Treat 0 and 3010 (reboot recommended) as success
+        $rContent | Should -Match '\$code -eq 0 -or \$code -eq 3010'
+    }
+
     It 'status data reports DoH bypass state' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Match '\$statusData\.HostsFile\.DohEnabled'
