@@ -119,6 +119,10 @@ A WPF companion GUI with Catppuccin Mocha dark theme at full CLI parity. Include
 # -Only and -Skip can be combined; -Skip always wins (this runs Firewall only)
 .\Disable-AdobeTelemetry.ps1 -Only Firewall,Hosts -Skip Hosts
 
+# Also deny SYSTEM write on the hosts file so Adobe WAM cannot re-inject its entry
+# (opt-in: the SYSTEM watchdog can no longer reassert hosts entries while locked)
+.\Disable-AdobeTelemetry.ps1 -LockHostsFile
+
 # Light touch: block telemetry domains and kill processes only (no service/task/registry changes)
 .\Disable-AdobeTelemetry.ps1 -Profile Minimal
 
@@ -199,7 +203,7 @@ CC application updates may restore disabled executables. The IFEO debugger redir
 .\Disable-AdobeTelemetry.ps1 -Undo
 ```
 
-The `-Undo` switch automatically reverses all changes: re-enables services and scheduled tasks, removes firewall rules, removes the hosts file block, removes IFEO debugger redirects, restores renamed executables, removes GrowthSDK blocker files, removes registry policy overrides, and re-enables startup entries.
+The `-Undo` switch automatically reverses all changes: re-enables services and scheduled tasks, removes firewall rules, removes the hosts file block, removes any hosts-file SYSTEM deny-write lock, removes IFEO debugger redirects, restores renamed executables (including disabled startup shortcuts), removes GrowthSDK blocker files, removes registry policy overrides, and re-enables startup entries.
 
 ## Development
 

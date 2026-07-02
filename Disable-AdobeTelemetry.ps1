@@ -54,6 +54,13 @@
     Output format for -StatusOnly: Text (default, colored console output) or JSON
     (machine-readable structured output for fleet management tools).
 
+.PARAMETER LockHostsFile
+    After writing the hosts block, add a Deny-Write ACE for NT AUTHORITY\SYSTEM on the
+    hosts file so Adobe WAM (which runs as SYSTEM) cannot re-inject its detection entry.
+    Opt-in: the weekly watchdog task runs as SYSTEM, so locking the hosts file prevents
+    the watchdog from reasserting hosts entries (firewall/IFEO reassertion is unaffected).
+    Fully reversed by -Undo.
+
 .NOTES
     Author  : Matt (Maven Imaging)
     Version : 2.4.1
@@ -93,6 +100,7 @@ param(
     [int]$PlumbingMinutes = 10,
     [Alias('Verbose')]
     [switch]$ShowRationale,
+    [switch]$LockHostsFile,
     [ValidateSet('Text','JSON')]
     [string]$OutputFormat = 'Text'
 )
@@ -1475,6 +1483,25 @@ function Block-AdobeHostsFile {
     if ($doh.Enabled) {
         Write-Status "DNS-over-HTTPS is enabled ($($doh.Sources -join '; ')). Hosts-file blocking is bypassed by DoH - rely on the firewall/route layers or disable DoH for full coverage." -Type Warning
     }
+
+    # Optional: deny SYSTEM write on the hosts file so Adobe WAM (running as SYSTEM)
+    # cannot re-inject its detection entry. Opt-in because the SYSTEM watchdog would
+    # then be unable to reassert hosts entries.
+    if ($LockHostsFile) {
+        try {
+            $sysSid = New-Object System.Security.Principal.SecurityIdentifier([System.Security.Principal.WellKnownSidType]::LocalSystemSid, $null)
+            $acl = Get-Acl $hostsPath
+            $denyRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                $sysSid, 'WriteData,AppendData,Delete', 'Deny'
+            )
+            $acl.AddAccessRule($denyRule)
+            Set-Acl -Path $hostsPath -AclObject $acl
+            Write-Status 'Locked hosts file: denied SYSTEM write (blocks WAM re-injection)' -Type Success
+            Add-ManifestAction -Phase 'Hosts' -Action 'LockHostsAcl' -Details @{ Path = $hostsPath }
+        } catch {
+            Write-Status "Could not lock hosts file ACL: $($_.Exception.Message)" -Type Warning
+        }
+    }
 }
 
 function Get-HostsDomainMappings {
@@ -1968,8 +1995,33 @@ function Remove-HostsBlockByMarker {
     if ($content -and $content -match [regex]::Escape($Marker)) {
         $pattern = "(?s)\r?\n?$([regex]::Escape($Marker)).*?$([regex]::Escape($EndMarker))\r?\n?"
         $content = $content -replace $pattern, ''
-        Set-Content -Path $Path -Value $content.TrimEnd() -Force -Encoding UTF8
+        # BOM-free UTF-8, consistent with Block-AdobeHostsFile
+        [System.IO.File]::WriteAllText($Path, ($content.TrimEnd() + "`r`n"), (New-Object System.Text.UTF8Encoding($false)))
         Write-Status "Removed hosts block: $Marker" -Type Success
+    }
+}
+
+function Remove-HostsAclLock {
+    param([string]$Path)
+    try {
+        $sysSid = New-Object System.Security.Principal.SecurityIdentifier([System.Security.Principal.WellKnownSidType]::LocalSystemSid, $null)
+        $acl = Get-Acl $Path
+        $removed = $false
+        foreach ($rule in @($acl.Access)) {
+            if ($rule.AccessControlType -eq 'Deny') {
+                $ruleSid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+                if ($ruleSid -eq $sysSid.Value) {
+                    $acl.RemoveAccessRule($rule) | Out-Null
+                    $removed = $true
+                }
+            }
+        }
+        if ($removed) {
+            Set-Acl -Path $Path -AclObject $acl
+            Write-Status 'Unlocked hosts file: removed SYSTEM deny ACE' -Type Success
+        }
+    } catch {
+        Write-Status "Could not unlock hosts file ACL: $($_.Exception.Message)" -Type Warning
     }
 }
 
@@ -2060,6 +2112,12 @@ function Invoke-ManifestUndo {
                         -Marker (Get-ManifestDetail $details 'Marker') `
                         -EndMarker (Get-ManifestDetail $details 'EndMarker')
                     & ipconfig /flushdns 2>&1 | Out-Null
+                }
+                'LockHostsAcl' {
+                    $lockPath = Get-ManifestDetail $details 'Path'
+                    if ($lockPath -and (Test-Path $lockPath)) {
+                        Remove-HostsAclLock -Path $lockPath
+                    }
                 }
                 'RenameFile' {
                     $originalPath = Get-ManifestDetail $details 'OriginalPath'
@@ -2210,6 +2268,8 @@ function Invoke-Undo {
     $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
     $marker    = '# --- Adobe Telemetry Block (Disable-AdobeTelemetry.ps1) ---'
     $endMarker = '# --- End Adobe Telemetry Block ---'
+    # Defensively remove any SYSTEM deny-write lock (from -LockHostsFile) before editing
+    if (Test-Path $hostsPath) { Remove-HostsAclLock -Path $hostsPath }
     $hostsContent = Get-Content $hostsPath -Raw -ErrorAction SilentlyContinue
     $hostsModified = $false
     # Remove WAM entries if present (matches both old single-# and new CC v26.4+ double-## formats)
@@ -2228,7 +2288,7 @@ function Invoke-Undo {
         Write-Status 'No Adobe block found in hosts file' -Type Warning
     }
     if ($hostsModified) {
-        Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding UTF8
+        [System.IO.File]::WriteAllText($hostsPath, ($hostsContent.TrimEnd() + "`r`n"), (New-Object System.Text.UTF8Encoding($false)))
         & ipconfig /flushdns 2>&1 | Out-Null
         Write-Status 'DNS cache flushed' -Type Info
     }
