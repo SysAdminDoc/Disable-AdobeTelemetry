@@ -1281,12 +1281,19 @@ function Block-AdobeFirewall {
     # Dynamically discover additional telemetry executables under Adobe install paths
     $telemetryExeNames = @(
         'LogTransport2.exe', 'CRWindowsClientService.exe', 'CRLogTransport.exe', 'AdobeCollabSync.exe',
-        'AdobeGCClient.exe', 'Adobe Crash Processor.exe', 'AcroCEF.exe', 'RdrCEF.exe', 'Acrobat.exe',
-        'AcroRd32.exe', 'Adobe Dimension.exe', 'Adobe Substance 3D Painter.exe',
+        'AdobeGCClient.exe', 'Adobe Crash Processor.exe', 'AcroCEF.exe', 'RdrCEF.exe',
+        'Adobe Dimension.exe', 'Adobe Substance 3D Painter.exe',
         'Adobe Substance 3D Designer.exe', 'Adobe Substance 3D Sampler.exe', 'Adobe Substance 3D Stager.exe',
         'Creative Cloud.exe', 'Adobe CEF Helper.exe', 'AdobeNotificationClient.exe',
         'AdobeExtensionsService.exe', 'Adobe Content Synchronizer.exe'
     )
+    # Acrobat.exe / AcroRd32.exe are the primary user-facing apps - blocking all their
+    # outbound traffic breaks cloud documents, Sign, and collaboration. Their telemetry
+    # helpers (AcroCEF/RdrCEF) are blocked above at all tiers; block the apps themselves
+    # only under the Aggressive profile.
+    if ($Profile -eq 'Aggressive') {
+        $telemetryExeNames += @('Acrobat.exe', 'AcroRd32.exe')
+    }
     foreach ($installPath in $script:AdobeInstallPaths) {
         if (-not (Test-Path $installPath)) { continue }
         foreach ($exeName in $telemetryExeNames) {

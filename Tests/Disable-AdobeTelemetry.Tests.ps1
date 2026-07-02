@@ -1399,6 +1399,22 @@ Describe 'Audit Regression Tests' {
         $scriptContent | Should -Match 'Policies\\Adobe\\CreativeCloud'
     }
 
+    It 'Acrobat/AcroRd32 outbound blocking is Aggressive-only' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $fw = $funcDefs | Where-Object { $_.Name -eq 'Block-AdobeFirewall' }
+        $fw | Should -Not -BeNullOrEmpty
+        $body = $fw.Extent.Text
+        # The primary-app exes are added only under Aggressive
+        $body | Should -Match "if \(\`$Profile -eq 'Aggressive'\) \{\s*\`$telemetryExeNames \+= @\('Acrobat\.exe', 'AcroRd32\.exe'\)"
+        # The always-on list must NOT contain the bare primary-app exe entries
+        $baseList = [regex]::Match($body, "(?s)\`$telemetryExeNames = @\((.*?)\)").Groups[1].Value
+        $baseList | Should -Not -Match "'Acrobat\.exe'"
+        $baseList | Should -Not -Match "'AcroRd32\.exe'"
+        # Telemetry helpers stay in the base list
+        $baseList | Should -Match "'AcroCEF\.exe'"
+        $baseList | Should -Match "'RdrCEF\.exe'"
+    }
+
     It 'firewall exe paths are deduplicated before rule creation' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Match '\$adobeExePaths\s*=\s*@\(\$adobeExePaths\s*\|\s*Sort-Object\s*-Unique\)'
