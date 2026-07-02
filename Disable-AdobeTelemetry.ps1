@@ -339,7 +339,6 @@ $Services = @(
     'AGMService'                    # Adobe Genuine Monitor
     'AdobeARMservice'               # Adobe Acrobat Update Service
     'AdobeUpdateService'            # Adobe Update Service
-    'AdobeFlashPlayerUpdateSvc'
     'CCXProcess'
 )
 # END INVENTORY:Services
