@@ -72,6 +72,23 @@ For GrowthSDK, a similar approach is used: the directory is replaced with a read
 
 > **Note:** AdobeIPCBroker.exe is **not** given this treatment. It is required for Premiere Pro and Photoshop to start. Instead, it is blocked via outbound firewall rule only — it can still handle local inter-process communication but cannot phone home. If a previous run of the script disabled IPCBroker, the current version will automatically restore it.
 
+## Antivirus / EDR Notes (IFEO)
+
+The IFEO debugger redirect used to neutralize `CCXProcess.exe`, `Creative Cloud Helper.exe`, and `AdobeNotificationClient.exe` sets an `Image File Execution Options\<exe>\Debugger` registry value pointing at a non-existent path. This is a legitimate, documented Windows mechanism, but it is also catalogued as [MITRE ATT&CK T1546.012 (Image File Execution Options Injection)](https://attack.mitre.org/techniques/T1546/012/) because malware abuses the same key for persistence.
+
+As a result, some security products may flag the script's registry writes:
+
+- **Malwarebytes** may report `RiskWare.IFEOHijack`.
+- **EDR/SIEM** (Elastic, Splunk, Defender for Endpoint) may raise a registry-modification alert on the IFEO path.
+
+These are expected false positives for this defensive use. In managed environments, whitelist the script before running:
+
+- Add a path/hash exclusion for `Disable-AdobeTelemetry.ps1` in your AV/EDR console.
+- The redirects target only the three Adobe executables above; the debugger value always resolves to `%SystemRoot%\System32\AdobeTelemetryBlock.invalid`, so the entries are easy to identify and audit.
+- `-Undo` removes all IFEO entries the script created.
+
+If you prefer to avoid IFEO entirely, the executables are also renamed to `.disabled` and ACL-denied (see the triple-layer approach above); run with `-Skip CCXProcess` to omit the IFEO layer, accepting that an Adobe update which restores the original executable will not be caught automatically.
+
 ## Install
 
 Download the latest release ZIP from [GitHub Releases](https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/latest), extract, and run. Each release includes the CLI script, GUI companion, README, and LICENSE.
