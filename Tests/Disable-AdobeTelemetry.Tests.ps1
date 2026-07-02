@@ -1332,6 +1332,44 @@ Describe 'Audit Regression Tests' {
         $text | Should -Match "Application source 'Disable-AdobeTelemetry': Registered"
     }
 
+    It 'AllUsers policy application enumerates profiles and unloads mounted hives safely' {
+        $defs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $perUser = $defs | Where-Object { $_.Name -eq 'Get-PerUserPolicyList' }
+        $getHive = $defs | Where-Object { $_.Name -eq 'Get-UserProfileHive' }
+        $setAll = $defs | Where-Object { $_.Name -eq 'Set-AllUsersRegistryPolicies' }
+        $perUser | Should -Not -BeNullOrEmpty
+        $getHive | Should -Not -BeNullOrEmpty
+        $setAll | Should -Not -BeNullOrEmpty
+
+        # Safety: mounted hives are always unloaded, with the GC handle-release trick
+        $setAll.Extent.Text | Should -Match 'reg\.exe load'
+        $setAll.Extent.Text | Should -Match 'reg\.exe unload'
+        $setAll.Extent.Text | Should -Match '\[gc\]::Collect\(\); \[gc\]::WaitForPendingFinalizers\(\)'
+        $setAll.Extent.Text | Should -Match 'finally \{'
+        # -AllUsers is opt-in, gated in Set-AdobeRegistryPolicies
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        $scriptContent | Should -Match '\[switch\]\$AllUsers'
+        $scriptContent | Should -Match 'if \(\$AllUsers\) \{ Set-AllUsersRegistryPolicies \}'
+
+        # Behavioral: profile enumeration returns real profiles; provider path writes work
+        Invoke-Expression $perUser.Extent.Text
+        Invoke-Expression $getHive.Extent.Text
+        (Get-PerUserPolicyList).Count | Should -BeGreaterThan 0
+        $hives = Get-UserProfileHive
+        @($hives).Count | Should -BeGreaterThan 0
+        foreach ($h in $hives) { $h.SID | Should -Match '^S-1-5-21-' }
+
+        $mySid = ([System.Security.Principal.WindowsIdentity]::GetCurrent()).User.Value
+        $testPath = "Registry::HKEY_USERS\$mySid\Software\DA_AllUsersTest_$(Get-Random)"
+        try {
+            New-Item -Path $testPath -Force | Out-Null
+            New-ItemProperty -Path $testPath -Name 'AUSUF' -Value 0 -PropertyType DWord -Force | Out-Null
+            (Get-ItemProperty -Path $testPath -Name AUSUF).AUSUF | Should -Be 0
+        } finally {
+            Remove-Item -Path $testPath -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     It 'status data reports watchdog last/next run and last result code' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Match 'Get-ScheduledTaskInfo -TaskName \$script:WatchdogTaskName'
