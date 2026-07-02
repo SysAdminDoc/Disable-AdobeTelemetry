@@ -148,6 +148,8 @@ $colors = @{
             <StackPanel Grid.Column="1" Margin="0,0,16,0">
                 <CheckBox x:Name="DryRunCheck" Content="Dry Run"/>
                 <CheckBox x:Name="VerboseCheck" Content="Show Rationale"/>
+                <CheckBox x:Name="LockHostsCheck" Content="Lock hosts file (deny SYSTEM write)"/>
+                <CheckBox x:Name="AllUsersCheck" Content="Apply to all user profiles"/>
             </StackPanel>
         </Grid>
 
@@ -227,16 +229,23 @@ $colors = @{
 
         <!-- Status bar -->
         <Border Grid.Row="6" Background="$($colors.Mantle)" CornerRadius="4" Margin="0,8,0,0" Padding="10,6">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="StatusText" Grid.Column="0" Text="Ready"
-                           Foreground="$($colors.Subtext0)" FontSize="12" VerticalAlignment="Center"/>
-                <TextBlock x:Name="VersionText" Grid.Column="1" Text="v2.4.1"
-                           Foreground="$($colors.Surface2)" FontSize="11" VerticalAlignment="Center"/>
-            </Grid>
+            <StackPanel>
+                <ProgressBar x:Name="BusyBar" Height="4" IsIndeterminate="True" Visibility="Collapsed"
+                             Margin="0,0,0,6" Background="Transparent" Foreground="$($colors.Mauve)" BorderThickness="0"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="StatusText" Grid.Column="0" Text="Ready"
+                               Foreground="$($colors.Subtext0)" FontSize="12" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="UpdateText" Grid.Column="1" Text="" Margin="0,0,12,0"
+                               Foreground="$($colors.Yellow)" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="VersionText" Grid.Column="2" Text="v2.4.1"
+                               Foreground="$($colors.Surface2)" FontSize="11" VerticalAlignment="Center"/>
+                </Grid>
+            </StackPanel>
         </Border>
     </Grid>
 </Window>
@@ -255,6 +264,11 @@ $clearButton = $window.FindName('ClearButton')
 $profileCombo = $window.FindName('ProfileCombo')
 $dryRunCheck = $window.FindName('DryRunCheck')
 $verboseCheck = $window.FindName('VerboseCheck')
+$lockHostsCheck = $window.FindName('LockHostsCheck')
+$allUsersCheck = $window.FindName('AllUsersCheck')
+$busyBar = $window.FindName('BusyBar')
+$updateText = $window.FindName('UpdateText')
+$versionText = $window.FindName('VersionText')
 $watchdogInstallButton = $window.FindName('WatchdogInstallButton')
 $watchdogRemoveButton = $window.FindName('WatchdogRemoveButton')
 $importProfileButton = $window.FindName('ImportProfileButton')
@@ -316,6 +330,8 @@ function Set-UIEnabled {
         $saveJsonButton.IsEnabled = $isEnabled
         $traceStartButton.IsEnabled = $isEnabled
         $plumbingStartButton.IsEnabled = $isEnabled
+        # Indeterminate progress bar is visible only while an operation runs
+        $busyBar.Visibility = if ($isEnabled) { 'Collapsed' } else { 'Visible' }
     })
 }
 
@@ -426,6 +442,8 @@ function New-CommonArgs {
     if ($selectedProfile -ne 'Standard') { $cmdArgs += '-Profile'; $cmdArgs += $selectedProfile }
     if ($dryRunCheck.IsChecked) { $cmdArgs += '-DryRun' }
     if ($verboseCheck.IsChecked) { $cmdArgs += '-ShowRationale' }
+    if ($lockHostsCheck.IsChecked) { $cmdArgs += '-LockHostsFile' }
+    if ($allUsersCheck.IsChecked) { $cmdArgs += '-AllUsers' }
     return $cmdArgs
 }
 
@@ -548,6 +566,21 @@ if (-not (Test-Path $mainScript)) {
     Write-LogLine "  [!!] Main script not found. Place this GUI alongside Disable-AdobeTelemetry.ps1."
 }
 Write-LogLine ""
+
+# Surface an "update available" label from the CLI's update-check cache (best-effort)
+try {
+    $updCache = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\update-check.json'
+    if (Test-Path $updCache) {
+        $u = Get-Content $updCache -Raw | ConvertFrom-Json
+        if ($u.LatestTag) {
+            $latest = ($u.LatestTag -replace '^v', '')
+            $cur = ($versionText.Text -replace '^v', '')
+            if ([version]$latest -gt [version]$cur) {
+                $updateText.Text = "Update available: $($u.LatestTag)"
+            }
+        }
+    }
+} catch { }
 
 # Kill any still-running child operation when the window closes, so an elevated
 # powershell.exe is never orphaned after the GUI exits.
