@@ -1500,6 +1500,18 @@ Describe 'Audit Regression Tests' {
         $scriptContent | Should -Match 'retryMs\s*\*=\s*2'
     }
 
+    It 'GrowthSDK blocker planting is centralized in New-GrowthSDKBlocker' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $helper = $funcDefs | Where-Object { $_.Name -eq 'New-GrowthSDKBlocker' }
+        $helper | Should -Not -BeNullOrEmpty
+        $helper.Extent.Text | Should -Match "FileSystemAccessRule\('Everyone', 'Delete,Write', 'Deny'\)"
+
+        # Remove-GrowthSDK should call the helper from both branches and not inline the ACL twice
+        $removeFunc = ($funcDefs | Where-Object { $_.Name -eq 'Remove-GrowthSDK' }).Extent.Text
+        ([regex]::Matches($removeFunc, 'New-GrowthSDKBlocker -Path \$growthDir')).Count | Should -Be 2
+        ([regex]::Matches($removeFunc, "FileSystemAccessRule\('Everyone'")).Count | Should -Be 0
+    }
+
     It 'GrowthSDK retry loop re-attempts Remove-Item inside the loop body' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         # The for-retry loop must contain a Remove-Item, not just Start-Sleep

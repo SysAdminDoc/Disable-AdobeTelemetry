@@ -833,6 +833,23 @@ function Stop-AdobeProcesses {
     }
 }
 
+function New-GrowthSDKBlocker {
+    # Plant a read-only, system-hidden, ACL-deny blocker file at $Path so Adobe cannot
+    # recreate the GrowthSDK directory. Creates the parent directory if needed.
+    param([string]$Path)
+    $parentDir = Split-Path $Path
+    if ($parentDir -and -not (Test-Path $parentDir)) {
+        New-Item -Path $parentDir -ItemType Directory -Force | Out-Null
+    }
+    New-Item -Path $Path -ItemType File -Force | Out-Null
+    Set-ItemProperty -Path $Path -Name IsReadOnly -Value $true
+    Set-ItemProperty -Path $Path -Name Attributes -Value ([System.IO.FileAttributes]::ReadOnly -bor [System.IO.FileAttributes]::System -bor [System.IO.FileAttributes]::Hidden)
+    $acl = Get-Acl $Path
+    $denyRule = New-Object System.Security.AccessControl.FileSystemAccessRule('Everyone', 'Delete,Write', 'Deny')
+    $acl.AddAccessRule($denyRule)
+    Set-Acl -Path $Path -AclObject $acl
+}
+
 function Remove-GrowthSDK {
     Write-Status 'Neutralizing GrowthSDK across all profiles' -Type Header
     Write-Rationale 'GrowthSDK is Adobe''s in-app marketing framework that serves upsell prompts and phones home with usage data. Deleting the directory is insufficient; Adobe recreates it on every launch. A read-only ACL-denied blocker file prevents regeneration.'
@@ -864,17 +881,8 @@ function Remove-GrowthSDK {
             }
 
             if (-not (Test-Path $growthDir)) {
-                # Plant a read-only blocker file where the directory was
-                New-Item -Path $growthDir -ItemType File -Force | Out-Null
-                Set-ItemProperty -Path $growthDir -Name IsReadOnly -Value $true
-                Set-ItemProperty -Path $growthDir -Name Attributes -Value ([System.IO.FileAttributes]::ReadOnly -bor [System.IO.FileAttributes]::System -bor [System.IO.FileAttributes]::Hidden)
-                # Deny write via ACL to prevent Adobe from removing the blocker
-                $acl = Get-Acl $growthDir
-                $denyRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-                    'Everyone', 'Delete,Write', 'Deny'
-                )
-                $acl.AddAccessRule($denyRule)
-                Set-Acl -Path $growthDir -AclObject $acl
+                # Plant a read-only, ACL-denied blocker file where the directory was
+                New-GrowthSDKBlocker -Path $growthDir
                 Write-Status "Removed and blocked GrowthSDK for $($userProf.Name)" -Type Success
                 Add-ManifestAction -Phase 'GrowthSDK' -Action 'BlockDirectory' -Details @{
                     Path = $growthDir; Profile = $userProf.Name
@@ -893,19 +901,7 @@ function Remove-GrowthSDK {
                     continue
                 }
                 # Preemptively plant blocker even if directory didn't exist yet
-                $parentDir = Split-Path $growthDir
-                if (-not (Test-Path $parentDir)) {
-                    New-Item -Path $parentDir -ItemType Directory -Force | Out-Null
-                }
-                New-Item -Path $growthDir -ItemType File -Force | Out-Null
-                Set-ItemProperty -Path $growthDir -Name IsReadOnly -Value $true
-                Set-ItemProperty -Path $growthDir -Name Attributes -Value ([System.IO.FileAttributes]::ReadOnly -bor [System.IO.FileAttributes]::System -bor [System.IO.FileAttributes]::Hidden)
-                $acl = Get-Acl $growthDir
-                $denyRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-                    'Everyone', 'Delete,Write', 'Deny'
-                )
-                $acl.AddAccessRule($denyRule)
-                Set-Acl -Path $growthDir -AclObject $acl
+                New-GrowthSDKBlocker -Path $growthDir
                 Write-Status "Pre-blocked GrowthSDK for $($userProf.Name)" -Type Success
                 Add-ManifestAction -Phase 'GrowthSDK' -Action 'BlockDirectory' -Details @{
                     Path = $growthDir; Profile = $userProf.Name
