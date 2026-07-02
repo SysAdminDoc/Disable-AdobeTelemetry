@@ -144,6 +144,10 @@ A WPF companion GUI with Catppuccin Mocha dark theme at full CLI parity. Include
 # (opt-in: the SYSTEM watchdog can no longer reassert hosts entries while locked)
 .\Disable-AdobeTelemetry.ps1 -LockHostsFile
 
+# Apply the per-user telemetry policies to every profile, not just the current user
+# (opt-in: loads/unloads logged-out users' NTUSER.DAT hives; reversed by -Undo)
+.\Disable-AdobeTelemetry.ps1 -AllUsers
+
 # Light touch: block telemetry domains and kill processes only (no service/task/registry changes)
 .\Disable-AdobeTelemetry.ps1 -Profile Minimal
 

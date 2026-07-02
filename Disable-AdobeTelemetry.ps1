@@ -61,6 +61,13 @@
     the watchdog from reasserting hosts entries (firewall/IFEO reassertion is unaffected).
     Fully reversed by -Undo.
 
+.PARAMETER AllUsers
+    Apply the per-user (HKCU-equivalent) telemetry policies to every user profile on the
+    machine, not just the current user. Loaded hives are written directly; logged-out
+    profiles are temporarily mounted from NTUSER.DAT and unloaded afterward. Opt-in
+    because it touches other users' registry hives. Recorded in the manifest and reversed
+    by -Undo. Applies during the Registry phase.
+
 .NOTES
     Author  : Matt (Maven Imaging)
     Version : 2.4.1
@@ -101,6 +108,7 @@ param(
     [Alias('Verbose')]
     [switch]$ShowRationale,
     [switch]$LockHostsFile,
+    [switch]$AllUsers,
     [ValidateSet('Text','JSON')]
     [string]$OutputFormat = 'Text'
 )
@@ -995,6 +1003,85 @@ function Disable-AdobeServices {
     }
 }
 
+function Get-PerUserPolicyList {
+    # HKCU-relative telemetry policies (subkey path under the user hive root).
+    @(
+        @{ Sub = 'SOFTWARE\Adobe\CommonFiles\UsageCC';                    Name = 'AUSUF';            Value = 0;   Type = 'DWord'  }
+        @{ Sub = 'SOFTWARE\Adobe\Substance 3D Painter\Settings';          Name = 'enable_analytics'; Value = 0;   Type = 'DWord'  }
+        @{ Sub = 'SOFTWARE\Adobe\Substance 3D Designer\Settings';         Name = 'enable_analytics'; Value = 0;   Type = 'DWord'  }
+        @{ Sub = 'SOFTWARE\Adobe\Substance 3D Sampler\Settings';          Name = 'enable_analytics'; Value = 0;   Type = 'DWord'  }
+        @{ Sub = 'SOFTWARE\Adobe\Adobe Acrobat\DC\AVAlert\cCheckbox';     Name = 'iAcro498';         Value = 1;   Type = 'DWord'  }
+        @{ Sub = 'SOFTWARE\Adobe\CommonFiles\CRLog';                      Name = 'Never Ask';        Value = '1'; Type = 'String' }
+        @{ Sub = 'SOFTWARE\Adobe\Adobe Acrobat\DC\Workflows';             Name = 'bNeedSynchronizer';Value = 0;   Type = 'DWord'  }
+    )
+}
+
+function Get-UserProfileHive {
+    # Real user profiles (S-1-5-21-*) with their NTUSER.DAT path and loaded state.
+    $result = @()
+    $plKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList'
+    foreach ($sidKey in (Get-ChildItem $plKey -ErrorAction SilentlyContinue)) {
+        $sid = $sidKey.PSChildName
+        if ($sid -notmatch '^S-1-5-21-') { continue }
+        $imgPath = (Get-ItemProperty -Path $sidKey.PSPath -Name 'ProfileImagePath' -ErrorAction SilentlyContinue).ProfileImagePath
+        if (-not $imgPath) { continue }
+        $result += [pscustomobject]@{
+            SID       = $sid
+            NtUserDat = Join-Path $imgPath 'NTUSER.DAT'
+            Loaded    = (Test-Path "Registry::HKEY_USERS\$sid")
+        }
+    }
+    return $result
+}
+
+function Set-AllUsersRegistryPolicies {
+    # Apply the per-user telemetry policies to every profile. Loaded hives are written
+    # directly; logged-out profiles are mounted from NTUSER.DAT and unloaded afterward.
+    Write-Status 'Applying per-user telemetry policies to all profiles (-AllUsers)' -Type Header
+    $policies = Get-PerUserPolicyList
+    foreach ($p in (Get-UserProfileHive)) {
+        $loadedHere = $false
+        $hiveRoot = "HKEY_USERS\$($p.SID)"
+        if (-not $p.Loaded) {
+            if (-not (Test-Path $p.NtUserDat)) { continue }
+            if ($DryRun) {
+                Write-Status "Would load hive and set policies for $($p.SID)" -Type DryRun
+            } else {
+                $mount = "HKEY_USERS\DAT_$($p.SID)"
+                & reg.exe load $mount $p.NtUserDat *> $null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Status "Could not load hive for $($p.SID) (in use?)" -Type Warning
+                    continue
+                }
+                $hiveRoot = $mount
+                $loadedHere = $true
+            }
+        }
+        try {
+            foreach ($rp in $policies) {
+                $regPath = "Registry::$hiveRoot\$($rp.Sub)"
+                if ($DryRun) {
+                    Write-Status "Would set $($p.SID)\$($rp.Sub)\$($rp.Name) = $($rp.Value)" -Type DryRun
+                    continue
+                }
+                if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+                New-ItemProperty -Path $regPath -Name $rp.Name -Value $rp.Value -PropertyType $rp.Type -Force | Out-Null
+                Add-ManifestAction -Phase 'Registry' -Action 'SetUserRegistry' -Details @{
+                    SID = $p.SID; NtUserDat = $p.NtUserDat; Sub = $rp.Sub; Name = $rp.Name
+                }
+                $script:Counters.RegistryKeysSet++
+            }
+            if (-not $DryRun) { Write-Status "Applied per-user policies for $($p.SID)" -Type Success }
+        } finally {
+            if ($loadedHere) {
+                # Release PowerShell registry handles so reg unload can succeed
+                [gc]::Collect(); [gc]::WaitForPendingFinalizers()
+                & reg.exe unload $hiveRoot *> $null
+            }
+        }
+    }
+}
+
 function Set-AdobeRegistryPolicies {
     Write-Status 'Setting registry policies to disable telemetry' -Type Header
     Write-Rationale 'Enterprise registry policies under HKLM:\SOFTWARE\Policies\Adobe are the official mechanism for fleet-wide Adobe telemetry suppression. Adobe applications read these keys at startup and respect them.'
@@ -1084,6 +1171,8 @@ function Set-AdobeRegistryPolicies {
             $script:Counters.RegistryKeysSet++
         }
     }
+
+    if ($AllUsers) { Set-AllUsersRegistryPolicies }
 }
 
 function Resolve-TelemetryDomainAddresses {
@@ -2130,6 +2219,38 @@ function Invoke-ManifestUndo {
                         -PreviousValue (Get-ManifestDetail $details 'PreviousValue') `
                         -PreviousExists ([bool](Get-ManifestDetail $details 'PreviousExists')) `
                         -PreviousType (Get-ManifestDetail $details 'PreviousType')
+                }
+                'SetUserRegistry' {
+                    # Remove a per-user (-AllUsers) policy value, mounting the hive if needed.
+                    $sid = Get-ManifestDetail $details 'SID'
+                    $ntUserDat = Get-ManifestDetail $details 'NtUserDat'
+                    $sub = Get-ManifestDetail $details 'Sub'
+                    $name = Get-ManifestDetail $details 'Name'
+                    if ($sid -and $sub -and $name) {
+                        $loadedHere = $false
+                        $hiveRoot = "HKEY_USERS\$sid"
+                        if (-not (Test-Path "Registry::$hiveRoot")) {
+                            if ($ntUserDat -and (Test-Path $ntUserDat)) {
+                                $hiveRoot = "HKEY_USERS\DAT_$sid"
+                                & reg.exe load $hiveRoot $ntUserDat *> $null
+                                if ($LASTEXITCODE -eq 0) { $loadedHere = $true } else { $hiveRoot = $null }
+                            } else { $hiveRoot = $null }
+                        }
+                        if ($hiveRoot) {
+                            try {
+                                $regPath = "Registry::$hiveRoot\$sub"
+                                if (Test-Path $regPath) {
+                                    Remove-ItemProperty -Path $regPath -Name $name -Force -ErrorAction SilentlyContinue
+                                    Write-Status "Removed per-user policy $sid\$sub\$name" -Type Success
+                                }
+                            } finally {
+                                if ($loadedHere) {
+                                    [gc]::Collect(); [gc]::WaitForPendingFinalizers()
+                                    & reg.exe unload $hiveRoot *> $null
+                                }
+                            }
+                        }
+                    }
                 }
                 'DisableService' {
                     $name = Get-ManifestDetail $details 'Name'
