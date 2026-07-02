@@ -1,6 +1,6 @@
 # Disable-AdobeTelemetry
 
-![Version](https://img.shields.io/badge/version-v2.4.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-PowerShell-lightgrey)
+![Version](https://img.shields.io/badge/version-v2.5.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-PowerShell-lightgrey)
 
 A PowerShell script that comprehensively disables Adobe's background telemetry, analytics, in-app marketing (GrowthSDK), and persistent background processes that run even after closing Adobe applications.
 
@@ -95,7 +95,7 @@ Download the latest release ZIP from [GitHub Releases](https://github.com/SysAdm
 
 ```powershell
 # Verify the download checksum
-(Get-FileHash Disable-AdobeTelemetry-v2.4.1.zip -Algorithm SHA256).Hash
+(Get-FileHash Disable-AdobeTelemetry-v2.5.0.zip -Algorithm SHA256).Hash
 # Compare against the hash in SHA256SUMS.txt from the same release
 ```
 
