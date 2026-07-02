@@ -1222,6 +1222,15 @@ Describe 'Audit Regression Tests' {
         $loop.Value | Should -Not -Match '\$targetPath -PathType Container'
     }
 
+    It 'legacy undo restores renamed startup shortcuts' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $undo = $funcDefs | Where-Object { $_.Name -eq 'Invoke-Undo' }
+        $undo | Should -Not -BeNullOrEmpty
+        # Must enumerate *.lnk.disabled and rename back (strip the .disabled suffix)
+        $undo.Extent.Text | Should -Match "Filter '\*\.lnk\.disabled'"
+        $undo.Extent.Text | Should -Match "-replace '\\\.disabled\`$', ''"
+    }
+
     It 'legacy undo includes CreativeCloud registry path' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Match 'Policies\\Adobe\\CreativeCloud'
