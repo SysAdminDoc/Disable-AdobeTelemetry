@@ -1336,9 +1336,7 @@ function Block-AdobeHostsFile {
     $marker    = '# --- Adobe Telemetry Block (Disable-AdobeTelemetry.ps1) ---'
     $endMarker = '# --- End Adobe Telemetry Block ---'
 
-    $hostsContent = Get-Content $hostsPath -Raw -ErrorAction SilentlyContinue
-
-    # Pre-flight backup of the hosts file
+    # Pre-flight backup path setup
     $backupDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry'
     if (-not (Test-Path $backupDir)) {
         New-Item -Path $backupDir -ItemType Directory -Force | Out-Null
@@ -1353,40 +1351,72 @@ function Block-AdobeHostsFile {
         return
     }
 
-    Copy-Item -Path $hostsPath -Destination $backupPath -Force -ErrorAction SilentlyContinue
-    Write-Status "Hosts file backed up to $backupPath" -Type Info
-    Add-ManifestAction -Phase 'Hosts' -Action 'HostsBackup' -Details @{
-        Path = $hostsPath; BackupPath = $backupPath
+    # Open the hosts file with an exclusive lock for the entire read-modify-write so
+    # Adobe WAM, a Pi-hole sync agent, corporate MDM, or a second instance cannot race
+    # us between read and write and lose the other party's changes.
+    $fs = $null
+    try {
+        $fs = [System.IO.File]::Open($hostsPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+    } catch {
+        Write-Status "Could not acquire exclusive lock on hosts file: $($_.Exception.Message)" -Type Error
+        return
     }
 
-    # Remove Adobe WAM injected entries if present (matches both old single-# and new CC v26.4+ double-## formats)
-    $wamPattern = '(?s)\r?\n?#{1,2}\s*Adobe Creative Cloud WAM\s*-\s*Start\s*#{0,2}.*?#{1,2}\s*Adobe Creative Cloud WAM\s*-\s*End\s*#{0,2}\r?\n?'
-    if ($hostsContent -match $wamPattern) {
-        $hostsContent = $hostsContent -replace $wamPattern, ''
-        Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding UTF8
+    $wamRemoved = $false
+    try {
+        $reader = New-Object System.IO.StreamReader($fs)
+        $hostsContent = $reader.ReadToEnd()
+        if (-not $hostsContent) { $hostsContent = '' }
+
+        # Backup the current content to a separate file while the source stays locked.
+        # Written BOM-free so the backup is a faithful copy of a clean hosts file.
+        [System.IO.File]::WriteAllText($backupPath, $hostsContent, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Status "Hosts file backed up to $backupPath" -Type Info
+        Add-ManifestAction -Phase 'Hosts' -Action 'HostsBackup' -Details @{
+            Path = $hostsPath; BackupPath = $backupPath
+        }
+
+        # Remove Adobe WAM injected entries if present (old single-# and new CC v26.4+ double-## formats)
+        $wamPattern = '(?s)\r?\n?#{1,2}\s*Adobe Creative Cloud WAM\s*-\s*Start\s*#{0,2}.*?#{1,2}\s*Adobe Creative Cloud WAM\s*-\s*End\s*#{0,2}\r?\n?'
+        if ($hostsContent -match $wamPattern) {
+            $hostsContent = $hostsContent -replace $wamPattern, ''
+            $wamRemoved = $true
+        }
+
+        # Remove previous block if it exists (idempotent refresh)
+        if ($hostsContent -match [regex]::Escape($marker)) {
+            $pattern = "(?s)$([regex]::Escape($marker)).*?$([regex]::Escape($endMarker))\r?\n?"
+            $hostsContent = $hostsContent -replace $pattern, ''
+        }
+
+        # Append new block (IPv4 + IPv6 sinkhole for each domain)
+        $blockEntries = @($marker)
+        foreach ($domain in $TelemetryDomains) {
+            $blockEntries += "0.0.0.0    $domain"
+            $blockEntries += "::         $domain"
+        }
+        $blockEntries += $endMarker
+
+        $finalContent = $hostsContent.TrimEnd() + "`r`n" + ($blockEntries -join "`r`n") + "`r`n"
+
+        # Single BOM-free UTF-8 write while still holding the exclusive lock. PS 5.1's
+        # Set-Content -Encoding UTF8 prepends a BOM that some DNS/MDM parsers reject.
+        $fs.SetLength(0)
+        $fs.Position = 0
+        $writer = New-Object System.IO.StreamWriter($fs, (New-Object System.Text.UTF8Encoding($false)))
+        $writer.Write($finalContent)
+        $writer.Flush()
+    } finally {
+        if ($fs) { $fs.Close() }
+    }
+
+    if ($wamRemoved) {
         Write-Status 'Removed Adobe WAM hosts injection' -Type Success
         Add-ManifestAction -Phase 'Hosts' -Action 'RemoveHostsBlock' -Details @{
             Path = $hostsPath; Marker = 'WAM'; EndMarker = 'WAM'
         }
     }
 
-    # Remove previous block if it exists (idempotent refresh)
-    if ($hostsContent -match [regex]::Escape($marker)) {
-        $pattern = "(?s)$([regex]::Escape($marker)).*?$([regex]::Escape($endMarker))\r?\n?"
-        $hostsContent = $hostsContent -replace $pattern, ''
-        Set-Content -Path $hostsPath -Value $hostsContent.TrimEnd() -Force -Encoding UTF8
-    }
-
-    # Append new block (IPv4 + IPv6 sinkhole for each domain)
-    $blockEntries = @($marker)
-    foreach ($domain in $TelemetryDomains) {
-        $blockEntries += "0.0.0.0    $domain"
-        $blockEntries += "::         $domain"
-    }
-    $blockEntries += $endMarker
-
-    $newBlock = "`r`n" + ($blockEntries -join "`r`n") + "`r`n"
-    Add-Content -Path $hostsPath -Value $newBlock -Encoding UTF8
     Write-Status "Added $($TelemetryDomains.Count) domains to hosts file" -Type Success
     Add-ManifestAction -Phase 'Hosts' -Action 'HostsBlock' -Details @{
         Path = $hostsPath; Marker = $marker; EndMarker = $endMarker; BackupPath = $backupPath
