@@ -1352,6 +1352,29 @@ Describe 'Audit Regression Tests' {
         $undo.Extent.Text | Should -Match "-replace '\\\.disabled\`$', ''"
     }
 
+    It 'Initialize-AppDataDirectory short-circuits after first call' {
+        $funcDefs = $script:ScriptAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+        $initFunc = $funcDefs | Where-Object { $_.Name -eq 'Initialize-AppDataDirectory' }
+        $initFunc | Should -Not -BeNullOrEmpty
+        $initFunc.Extent.Text | Should -Match 'if \(\$script:AppDataInitialized\) \{ return \}'
+        $initFunc.Extent.Text | Should -Match '\$script:AppDataInitialized = \$true'
+
+        # Behavioral: second call performs no filesystem probe
+        $script:ManifestDir = Join-Path $env:TEMP "DAInitTest_$(Get-Random)"
+        $script:LogDir = Join-Path $script:ManifestDir 'logs'
+        $script:AppDataInitialized = $false
+        Invoke-Expression $initFunc.Extent.Text
+        Mock Test-Path { $script:__probe++; $false }
+        $script:__probe = 0
+        Initialize-AppDataDirectory   # first call creates dirs, probes
+        $firstProbe = $script:__probe
+        $script:__probe = 0
+        Initialize-AppDataDirectory   # second call must short-circuit (no probes)
+        $script:__probe | Should -Be 0
+        $firstProbe | Should -BeGreaterThan 0
+        Remove-Item $script:ManifestDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
     It 'legacy undo includes CreativeCloud registry path' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Match 'Policies\\Adobe\\CreativeCloud'
