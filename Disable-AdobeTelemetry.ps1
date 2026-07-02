@@ -2914,6 +2914,44 @@ function Show-Status {
 
 # ── Summary Function ──────────────────────────────────────────────────────────
 
+function Test-UpdateAvailable {
+    # Non-blocking update notification. Reports from a <=24h cache immediately (never
+    # waits on the network), then refreshes the cache in a background job for next run.
+    $cacheDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry'
+    if (-not (Test-Path $cacheDir)) { New-Item -Path $cacheDir -ItemType Directory -Force | Out-Null }
+    $cachePath = Join-Path $cacheDir 'update-check.json'
+    $current = $script:Version
+    $cacheFresh = $false
+
+    if (Test-Path $cachePath) {
+        try {
+            $cache = Get-Content $cachePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            if ($cache.LatestTag) {
+                $latest = ($cache.LatestTag -replace '^v', '')
+                if ([version]$latest -gt [version]$current) {
+                    Write-Status "Update available: $($cache.LatestTag) (current v$current) - https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/latest" -Type Warning
+                }
+            }
+            if ($cache.CheckedUtc) {
+                $checked = [datetime]::Parse($cache.CheckedUtc, $null, [System.Globalization.DateTimeStyles]::RoundtripKind)
+                if (([datetime]::UtcNow - $checked.ToUniversalTime()).TotalHours -lt 24) { $cacheFresh = $true }
+            }
+        } catch { }
+    }
+
+    if (-not $cacheFresh) {
+        # Fire-and-forget refresh; result is consumed on a later run so this never blocks.
+        Start-Job -ScriptBlock {
+            param($cachePath)
+            try {
+                $resp = Invoke-RestMethod -Uri 'https://api.github.com/repos/SysAdminDoc/Disable-AdobeTelemetry/releases/latest' -Headers @{ 'User-Agent' = 'Disable-AdobeTelemetry' } -UseBasicParsing -TimeoutSec 8 -ErrorAction Stop
+                @{ LatestTag = $resp.tag_name; CheckedUtc = [datetime]::UtcNow.ToString('o') } |
+                    ConvertTo-Json | Set-Content -LiteralPath $cachePath -Encoding UTF8 -Force
+            } catch { }
+        } -ArgumentList $cachePath | Out-Null
+    }
+}
+
 function Write-SummaryEvent {
     # Write a run-summary entry to the Windows Application event log for fleet/SIEM
     # visibility. EventIDs: 1000=success, 2000=partial, 3000=failure, 4000=undo.
@@ -3427,6 +3465,9 @@ if (-not $jsonStatus) {
         Write-Host "  Skipping: $($Skip -join ', ')" -ForegroundColor Yellow
     }
 }
+
+# Non-blocking update check (skipped in JSON status mode to keep stdout pure)
+if (-not $jsonStatus) { Test-UpdateAvailable }
 
 # Initialize log
 $logHeader = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Disable-AdobeTelemetry $script:DisplayVersion started"
