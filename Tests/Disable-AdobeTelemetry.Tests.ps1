@@ -1242,6 +1242,14 @@ Describe 'Audit Regression Tests' {
         $scriptContent | Should -Match 'retryMs\s*\*=\s*2'
     }
 
+    It 'GrowthSDK retry loop re-attempts Remove-Item inside the loop body' {
+        $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
+        # The for-retry loop must contain a Remove-Item, not just Start-Sleep
+        $loop = [regex]::Match($scriptContent, '(?s)for \(\$attempt = 0.*?Test-Path \$growthDir\); \$attempt\+\+\) \{(.*?)\}')
+        $loop.Success | Should -BeTrue
+        $loop.Groups[1].Value | Should -Match 'Remove-Item \$growthDir'
+    }
+
     It 'GUI reads stderr asynchronously to prevent deadlock' {
         $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
         if (-not (Test-Path $guiPath)) { Set-ItResult -Skipped -Because 'GUI script not present'; return }
