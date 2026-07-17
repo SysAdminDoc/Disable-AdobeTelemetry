@@ -69,7 +69,7 @@
     by -Undo. Applies during the Registry phase.
 
 .NOTES
-    Author  : Matt (Maven Imaging)
+    Author  : SysAdminDoc
     Version : 2.5.0
     Date    : 2026-07-01
 

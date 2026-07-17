@@ -17,7 +17,7 @@
     Full path to Disable-AdobeTelemetry.ps1. If omitted, a default search is used.
 
 .NOTES
-    Author : Matt (Maven Imaging)
+    Author : SysAdminDoc
     Part of Disable-AdobeTelemetry. Pair with Remediate-AdobeTelemetry.ps1.
 #>
 

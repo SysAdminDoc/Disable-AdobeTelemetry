@@ -19,7 +19,7 @@
     Blocking intensity passed to the main script (Minimal, Standard, Aggressive).
 
 .NOTES
-    Author : Matt (Maven Imaging)
+    Author : SysAdminDoc
     Part of Disable-AdobeTelemetry. Pair with Detect-AdobeTelemetry.ps1.
 #>
 

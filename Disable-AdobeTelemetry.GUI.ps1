@@ -5,7 +5,7 @@
     Catppuccin Mocha themed GUI wrapper that invokes Disable-AdobeTelemetry.ps1
     with streaming log output. All operations run asynchronously to keep the UI responsive.
 .NOTES
-    Author  : Matt (Maven Imaging)
+    Author  : SysAdminDoc
     Version : 2.5.0
     Date    : 2026-07-01
 #>
