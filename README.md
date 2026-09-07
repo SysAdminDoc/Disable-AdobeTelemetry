@@ -1,38 +1,120 @@
-# Disable-AdobeTelemetry
+<p align="center">
+  <img src="assets/brand/disable-adobe-telemetry-readme-banner.png" alt="Disable Adobe Telemetry shield and recovery logo" width="900">
+</p>
 
-![Version](https://img.shields.io/badge/version-v2.5.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-PowerShell-lightgrey)
+<h1 align="center">Disable Adobe Telemetry</h1>
 
-A PowerShell script that comprehensively disables Adobe's background telemetry, analytics, in-app marketing (GrowthSDK), and persistent background processes that run even after closing Adobe applications.
+<p align="center"><strong>Reversible Windows privacy controls for Adobe background telemetry and GrowthSDK.</strong></p>
 
-## The Problem
+<p align="center">
+  <img src="https://img.shields.io/badge/version-2.5.1-20d7f2?style=flat-square" alt="Version 2.5.1">
+  <img src="https://img.shields.io/badge/license-MIT-55d6a7?style=flat-square" alt="MIT License">
+  <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-9db8ff?style=flat-square" alt="Windows 10 and 11">
+  <img src="https://img.shields.io/badge/PowerShell-5.1%2B-ff9e64?style=flat-square" alt="PowerShell 5.1 or newer">
+</p>
 
-Adobe Creative Cloud applications (Premiere Pro, Photoshop, etc.) install and continuously run background processes that:
+<p align="center">
+  <a href="https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/download/v2.5.1/Disable-AdobeTelemetry-v2.5.1.zip"><strong>Download v2.5.1</strong></a>
+  &nbsp;&bull;&nbsp;
+  <a href="#start-safely">Start safely</a>
+  &nbsp;&bull;&nbsp;
+  <a href="#undo-everything">Undo everything</a>
+</p>
 
-- **GrowthSDK** (`%LocalAppData%Low\Adobe\GrowthSDK`) — Adobe's in-app marketing and analytics framework that serves upsell prompts, A/B tests UI elements, and phones home with usage data. Deleting the directory does nothing — it regenerates every launch.
-- **CCXProcess.exe** (`C:\Program Files\Adobe\Adobe Creative Cloud Experience`) — The Creative Cloud Experience host. Persists after closing all Adobe apps and relaunches itself via scheduled tasks and other Adobe processes.
-- **AdobeIPCBroker.exe** (`C:\Program Files (x86)\Common Files\Adobe\Adobe Desktop Common\IPCBox`) — Inter-process communication broker that facilitates telemetry and CC service communication. Also persists after closing Adobe apps.
-- **Multiple background services and scheduled tasks** — AGSService, AdobeGCInvoker, Adobe Genuine Monitor, and others that maintain telemetry pipelines and "genuine" software checks.
+Adobe applications can leave analytics frameworks, scheduled tasks, services,
+and background processes running after the creative app closes. This project
+gives you one place to preview those controls, apply the level you want, check
+the result, and reverse every recorded change.
 
-Simply killing these processes or deleting their files is temporary — Adobe apps relaunch them on startup, and CC services recreate deleted directories.
+It doesn't require an account. The Standard profile protects 60 endpoints
+across 11 phases while preserving Adobe sign-in and download hosts.
 
-## What This Script Does
+## See the control center
 
-| Action | Details |
+![Disable Adobe Telemetry control center with Standard profile selected](assets/screenshots/01-control-center.png)
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/02-status-check.png" alt="Representative protection status in Disable Adobe Telemetry"></td>
+    <td width="50%"><img src="assets/screenshots/03-dry-run-preview.png" alt="No-write Standard profile preview in Disable Adobe Telemetry"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Check each protection layer</strong></td>
+    <td align="center"><strong>Preview before writing changes</strong></td>
+  </tr>
+</table>
+
+These screenshots come from deterministic, no-write presentation states in the
+real WPF interface. Capturing them does not inspect or modify the machine.
+
+## Why people use it
+
+| What matters | How the project handles it |
 |---|---|
-| **Kill Processes** | Terminates CCXProcess, CCLibrary, AdobeIPCBroker, Adobe Desktop Service, AGSService, AGMService, AdobeNotificationClient, AdobeUpdateService, CoreSync, LogTransport2, AdobeCollabSync, CRWindowsClientService, CRLogTransport, acrotray, Adobe CEF Helper, and Adobe-spawned Node.js instances |
-| **Neutralize GrowthSDK** | Removes the GrowthSDK directory across all user profiles and plants a read-only, system-hidden, ACL-denied blocker file in its place so it cannot be recreated |
-| **Disable CCXProcess** | Renames the executable to `.disabled`, applies IFEO debugger redirect as a failsafe, and strips execute permissions via ACL deny |
-| **Firewall AdobeIPCBroker** | Blocks outbound connections only — IPCBroker is required for Premiere/Photoshop to launch, so it is left functional but firewalled. The script also auto-restores IPCBroker if a previous run disabled it. |
-| **Disable Scheduled Tasks** | Disables all Adobe-related scheduled tasks (AdobeGCInvoker, Genuine Monitor, updaters, etc.) |
-| **Disable Services** | Stops and sets to Disabled: AGSService, AGMService, AdobeARMservice, AdobeUpdateService, CCXProcess |
-| **Registry Policies** | Sets `DisableUsageData`, `DisableGrowth`, `DisableAutoupdates`, `AgsDisabled`, and disables the usage framework under enterprise policy keys |
-| **Firewall Rules** | Resolves and blocks the profile's Adobe telemetry domains (60 in Standard) by IP (TCP+UDP), plus blocks known telemetry executables by program path |
-| **Hosts File** | Sinkhole routes all Adobe telemetry/analytics domains to `0.0.0.0`, detects and removes Adobe WAM hosts injections, flushes DNS cache |
-| **Startup Entries** | Disables Adobe auto-run registry entries across HKLM and HKCU |
+| Start cautiously | Status Check inspects first. Preview changes only shows the plan without writing anything. |
+| Pick the right pressure | Minimal, Standard, and Aggressive profiles make the tradeoff explicit. |
+| Keep control | Run all 11 phases or choose individual process, service, registry, firewall, hosts, and startup phases. |
+| Recover cleanly | The tool records its actions in a manifest. Undo uses that record instead of guessing. |
+| Verify the result | Console, GUI, JSON status, JSONL logs, and Windows event records support personal and fleet use. |
+| Stay local | There is no account, cloud dashboard, or bundled telemetry. Update checks use a small local cache. |
+
+## Start safely
+
+1. Download and extract [`Disable-AdobeTelemetry-v2.5.1.zip`](https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/download/v2.5.1/Disable-AdobeTelemetry-v2.5.1.zip).
+2. Open `Disable-AdobeTelemetry.GUI.ps1`. Windows will request administrator access.
+3. Run **Status check** to see the current state.
+4. Enable **Preview changes only**, then run **Apply protections** to review the plan.
+5. Turn preview off and apply when the result matches what you want.
+
+The default Standard profile is the sensible starting point. Close Adobe apps
+before applying so files and services aren't held open.
+
+## Choose a profile
+
+| Profile | Best for | Tradeoff |
+|---|---|---|
+| Minimal | A light touch | Blocks 22 pure-telemetry domains and stops target processes. |
+| Standard | Most personal workstations | Uses 60 domains and all normal protection phases. Sign-in and download endpoints stay safelisted. |
+| Aggressive | Machines where cloud features aren't needed | Expands to 75 domains and can affect Fonts, Libraries, search, or other connected Adobe features. |
+
+## What it changes
+
+| Control | What happens |
+|---|---|
+| GrowthSDK | Removes the analytics framework and places a protected blocker at the same path. |
+| Background processes | Stops Adobe telemetry helpers and selected persistent processes. |
+| Scheduled tasks and services | Disables known telemetry, updater, and genuine-monitoring entries. |
+| Registry policy | Applies Adobe enterprise and Acrobat usage-data settings. |
+| Firewall | Blocks resolved telemetry addresses and known telemetry executables. |
+| Hosts file | Adds a clearly marked sinkhole block and removes Adobe WAM reinjection markers. |
+| Startup entries | Disables Adobe auto-run entries under HKLM and HKCU. |
+| CCXProcess | Renames the executable, adds an IFEO fallback, and applies an execute deny when needed. |
+
+AdobeIPCBroker stays executable because Photoshop and Premiere rely on its local
+IPC behavior. Only its outbound traffic is blocked.
+
+## Know the tradeoffs
+
+- Administrator access is required because the tool changes services, firewall rules, the hosts file, and protected registry paths.
+- Security software may flag the IFEO debugger entry. The exact keys are documented below, and Undo removes the entries created by this tool.
+- Adobe updates can restore files or settings. Status Check and the optional weekly watchdog help you detect that drift.
+- Aggressive can break connected Adobe features. Start with Standard unless you already know those features are disposable.
+- The release includes SHA256 checksums but isn't Authenticode-signed because this project does not yet have a code-signing certificate.
+
+## Undo everything
+
+Use **Undo all** in the GUI or run:
+
+```powershell
+.\Disable-AdobeTelemetry.ps1 -Undo
+```
+
+Undo reads the recorded manifest, restores renamed files and permissions, then
+removes the policies and network blocks created by the tool.
 
 ## Blocked Domains
 
-Domains are tiered by profile: **Minimal** (22 pure-telemetry domains), **Standard** (default, 60 domains — adds messaging, crash reporting, Firefly/GenAI, Sensei, genuine/license checks), and **Aggressive** (75 domains — adds fonts/Typekit, CC extensions, home/search, RUM). Aggressive also blocks the primary apps' outbound traffic (`Acrobat.exe`/`AcroRd32.exe`), recursively firewalls every `.exe` under the Adobe install paths, and blocks DNS-over-TLS (port 853). The canonical lists live in [`Data/Inventories.psd1`](Data/Inventories.psd1). Activation and download endpoints (`ims-na1.adobelogin.com`, `auth.services.adobe.com`, `ccmdls.adobe.com`, `ardownload2.adobe.com`, `fonts.adobe.com`, etc.) are safelisted and never blocked, so licensing and sign-in keep working.
+Domains are tiered by profile. **Minimal** covers 22 pure-telemetry domains. **Standard** is the default with 60 domains, including messaging, crash reporting, Firefly/GenAI, Sensei, and genuine-license checks. **Aggressive** expands to 75 domains, including Fonts/Typekit, CC extensions, home, search, and RUM. Aggressive also blocks the primary apps' outbound traffic (`Acrobat.exe`/`AcroRd32.exe`), recursively firewalls every `.exe` under the Adobe install paths, and blocks DNS-over-TLS on port 853. The canonical lists live in [`Data/Inventories.psd1`](Data/Inventories.psd1). Activation and download endpoints (`ims-na1.adobelogin.com`, `auth.services.adobe.com`, `ccmdls.adobe.com`, `ardownload2.adobe.com`, `fonts.adobe.com`, etc.) are safelisted and never blocked, so licensing and sign-in keep working.
 
 The Standard profile blocks outbound connections to:
 
@@ -64,13 +146,13 @@ stats.adobe.com              ui.messaging.adobe.com       utut-service.adobe.com
 
 For persistent executables like CCXProcess that Adobe apps relaunch on startup, the script uses three layers of defense:
 
-1. **Rename** — The executable is renamed to `.disabled` so nothing can find it at the expected path.
-2. **IFEO Redirect** — An Image File Execution Options debugger key is set to a non-existent path (`AdobeTelemetryBlock.invalid`). Even if Adobe restores the original executable (e.g., during an update), Windows intercepts the launch and silently kills it.
-3. **ACL Deny** — If the rename fails due to a file lock, execute permissions are stripped via a deny ACL for Everyone.
+1. **Rename.** The executable is renamed to `.disabled` so nothing can find it at the expected path.
+2. **IFEO redirect.** An Image File Execution Options debugger key is set to a non-existent path (`AdobeTelemetryBlock.invalid`). Even if Adobe restores the original executable during an update, Windows intercepts the launch and silently kills it.
+3. **ACL deny.** If the rename fails due to a file lock, execute permissions are stripped with a deny ACL for Everyone.
 
 For GrowthSDK, a similar approach is used: the directory is replaced with a read-only, system-hidden file with a deny ACL on write/delete, preventing Adobe from recreating the directory structure.
 
-> **Note:** AdobeIPCBroker.exe is **not** given this treatment. It is required for Premiere Pro and Photoshop to start. Instead, it is blocked via outbound firewall rule only — it can still handle local inter-process communication but cannot phone home. If a previous run of the script disabled IPCBroker, the current version will automatically restore it.
+> **Note:** AdobeIPCBroker.exe is **not** given this treatment. Premiere Pro and Photoshop need it to start. The tool blocks only its outbound traffic, so local inter-process communication keeps working. If an older run disabled IPCBroker, the current version restores it automatically.
 
 ## Antivirus / EDR Notes (IFEO)
 
@@ -95,7 +177,7 @@ Download the latest release ZIP from [GitHub Releases](https://github.com/SysAdm
 
 ```powershell
 # Verify the download checksum
-(Get-FileHash Disable-AdobeTelemetry-v2.5.0.zip -Algorithm SHA256).Hash
+(Get-FileHash Disable-AdobeTelemetry-v2.5.1.zip -Algorithm SHA256).Hash
 # Compare against the hash in SHA256SUMS.txt from the same release
 ```
 
@@ -112,7 +194,7 @@ cd Disable-AdobeTelemetry
 
 - Windows 10/11
 - PowerShell 5.1+
-- **Administrator privileges** (the script auto-elevates via UAC if not already elevated)
+- **Administrator privileges** (the script requests them through UAC when needed)
 
 ### GUI
 
@@ -120,12 +202,12 @@ cd Disable-AdobeTelemetry
 .\Disable-AdobeTelemetry.GUI.ps1
 ```
 
-A WPF companion GUI with Catppuccin Mocha dark theme at full CLI parity. Includes profile selection, dry run toggle, streaming log output, watchdog install/remove, profile import/export with file pickers, JSON status save, WFP trace configuration, and plumbing test controls. Auto-elevates to admin.
+A dark WPF control center with the same operations as the CLI. It includes profile selection, a no-write preview, live output, watchdog controls, profile import and export, JSON status, WFP trace configuration, and application plumbing tests. It requests administrator access through UAC when needed.
 
 ### CLI
 
 ```powershell
-# Run from any PowerShell prompt (auto-elevates via UAC)
+# Run from any PowerShell prompt (requests administrator access through UAC)
 .\Disable-AdobeTelemetry.ps1
 
 # Preview what would change without writing anything
@@ -196,10 +278,10 @@ A run-summary entry is also written to the **Windows Application event log** (so
 
 The [`fleet/`](fleet/) directory contains a detection/remediation script pair for Microsoft Intune (Proactive Remediations / device remediations):
 
-- **`fleet/Detect-AdobeTelemetry.ps1`** — runs the main script in `-StatusOnly -OutputFormat JSON`, evaluates stable compliance signals (hosts block present, firewall rules present, target services blocked), and exits `0` (compliant) or `1` (remediate).
-- **`fleet/Remediate-AdobeTelemetry.ps1`** — applies protections and maps the main script's exit codes (`0`/`3010` = success) to Intune's `0`/`1` convention.
+- **`fleet/Detect-AdobeTelemetry.ps1`** runs the main script in `-StatusOnly -OutputFormat JSON`, evaluates stable compliance signals (hosts block present, firewall rules present, target services blocked), and exits `0` for compliant or `1` to remediate.
+- **`fleet/Remediate-AdobeTelemetry.ps1`** applies protections and maps the main script's exit codes (`0`/`3010` for success) to Intune's `0`/`1` convention.
 
-Deploy `Disable-AdobeTelemetry.ps1` to the endpoint (e.g. `%ProgramData%\Disable-AdobeTelemetry\`) or pass `-ScriptPath`; both wrappers auto-search common locations. Run them in the **system** context (64-bit) — no interactive elevation is required because SYSTEM is already elevated.
+Deploy `Disable-AdobeTelemetry.ps1` to the endpoint (for example, `%ProgramData%\Disable-AdobeTelemetry\`) or pass `-ScriptPath`. Both wrappers search common locations automatically. Run them in the 64-bit **system** context. No interactive UAC prompt is required because SYSTEM already has the needed access.
 
 ### Exit Codes
 
@@ -213,7 +295,7 @@ Deploy `Disable-AdobeTelemetry.ps1` to the endpoint (e.g. `%ProgramData%\Disable
 
 ### Best Results
 
-For the cleanest run, close all Adobe applications before executing. If any rename operations report "file locked," reboot and re-run the script before opening any Adobe apps — the IFEO redirects will already be active as a failsafe in the meantime.
+For the cleanest run, close all Adobe applications before executing. If a rename operation reports "file locked," reboot and run the script again before opening Adobe apps. The IFEO redirects remain active as a fallback in the meantime.
 
 ### Update Notifications
 
@@ -221,17 +303,30 @@ On each run the script performs a **non-blocking** check for a newer GitHub rele
 
 ### DNS-over-HTTPS (DoH)
 
-Hosts-file sinkholing works at the OS resolver level, but **DNS-over-HTTPS bypasses it entirely** — a browser or the OS resolving names over an encrypted HTTPS channel never consults the hosts file. The script detects system auto-DoH, per-interface enforced DoH, and Edge/Chrome/Firefox DoH policies, and warns you when any are active. `-StatusOnly` reports DoH state under **Hosts File**. When DoH is enabled, rely on the firewall and persistent-route layers (which block by IP regardless of how the name was resolved) or disable DoH for full hosts-level coverage.
+Hosts-file sinkholing works at the OS resolver level, but **DNS-over-HTTPS bypasses it entirely**. A browser or the OS resolving names over an encrypted HTTPS channel never consults the hosts file. The script detects system auto-DoH, per-interface enforced DoH, and Edge/Chrome/Firefox DoH policies, then warns when any are active. `-StatusOnly` reports DoH state under **Hosts File**. When DoH is enabled, rely on the firewall and persistent-route layers, which block by IP regardless of how the name was resolved, or disable DoH for full hosts-level coverage.
 
-## What Still Works
+## Expected Adobe behavior
 
-Premiere Pro, Photoshop, Illustrator, After Effects, and other Creative Cloud applications continue to function normally. What you lose:
+Minimal and Standard are designed to preserve local editing, app launch, sign-in,
+and manual downloads through Creative Cloud. Sign-in, activation, and download
+hosts stay on the hard safelist.
 
-- In-app upsell/marketing popups
-- CC Libraries panel sync
-- Adobe usage analytics and telemetry
-- Adobe Genuine Software checks
-- Automatic background updates (you can still manually update via Creative Cloud)
+Blocking connected services still has consequences. Standard can reduce in-app
+messages, crash reporting, cloud Libraries, Firefly and Sensei calls, genuine
+software checks, and automatic background updates. Aggressive also targets
+Fonts/Typekit, extensions, home and search services, plus the primary apps'
+outbound traffic. Use Minimal if one of those features matters more than broader
+blocking.
+
+## Isolate an Adobe app problem
+
+1. Run **Status check** and save the JSON result if you need an audit trail.
+2. Use **Undo all**, restart Windows, and reproduce the Adobe issue without these controls.
+3. If the issue disappears, apply Minimal first. Add phases or move to Standard one step at a time.
+4. Use `-Only` or `-Skip` to identify the exact process, service, registry, firewall, hosts, or startup phase involved.
+
+This sequence separates an Adobe defect from a protection-side effect without
+leaving the machine in an unknown state.
 
 ## After Adobe Updates
 
@@ -258,6 +353,15 @@ Tests:
 
 ```powershell
 Invoke-Pester -Path .\Tests -Output Detailed
+```
+
+Rebuild the visual assets, recapture the no-write interface states, and produce
+the checked release ZIP with:
+
+```powershell
+.\tools\build-brand-assets.ps1
+.\tools\Capture-MarketingScreenshots.ps1
+.\tools\Build-Release.ps1
 ```
 
 ## License

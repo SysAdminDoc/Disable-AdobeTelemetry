@@ -2,56 +2,80 @@
 .SYNOPSIS
     Disable-AdobeTelemetry.GUI.ps1 - WPF companion GUI for Disable-AdobeTelemetry.
 .DESCRIPTION
-    Catppuccin Mocha themed GUI wrapper that invokes Disable-AdobeTelemetry.ps1
-    with streaming log output. All operations run asynchronously to keep the UI responsive.
+    Branded dark GUI wrapper that invokes Disable-AdobeTelemetry.ps1 with
+    streaming log output. Operations run asynchronously to keep the interface responsive.
 .NOTES
     Author  : SysAdminDoc
-    Version : 2.5.0
-    Date    : 2026-07-01
+    Version : 2.5.1
+    Date    : 2026-09-07
 #>
+
+$ErrorActionPreference = 'Stop'
 
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 
+$marketingCapture = $env:DISABLE_ADOBE_MARKETING_CAPTURE -eq '1'
+if ($marketingCapture) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class DisableAdobeDpi {
+    [DllImport("user32.dll")]
+    public static extern bool SetProcessDPIAware();
+}
+'@
+    [void][DisableAdobeDpi]::SetProcessDPIAware()
+}
+
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator
 )
-if (-not $isAdmin) {
+if (-not $isAdmin -and -not $marketingCapture) {
     Start-Process powershell.exe -Verb RunAs -ArgumentList @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`""
     )
     exit 0
 }
 
-# Catppuccin Mocha palette
+# Brand palette
 $colors = @{
-    Base     = '#1e1e2e'
-    Mantle   = '#181825'
-    Crust    = '#11111b'
-    Surface0 = '#313244'
-    Surface1 = '#45475a'
-    Surface2 = '#585b70'
-    Text     = '#cdd6f4'
-    Subtext0 = '#a6adc8'
-    Subtext1 = '#bac2de'
-    Green    = '#a6e3a1'
-    Red      = '#f38ba8'
-    Yellow   = '#f9e2af'
-    Blue     = '#89b4fa'
-    Mauve    = '#cba6f7'
-    Teal     = '#94e2d5'
-    Peach    = '#fab387'
-    Lavender = '#b4befe'
+    Base     = '#07101F'
+    Mantle   = '#0D1728'
+    Crust    = '#050A13'
+    Surface0 = '#14213A'
+    Surface1 = '#203252'
+    Surface2 = '#365071'
+    Text     = '#EEF4FF'
+    Subtext0 = '#91A4C3'
+    Subtext1 = '#B6C4DA'
+    Green    = '#55D6A7'
+    Red      = '#FF6B5E'
+    Yellow   = '#F3C969'
+    Blue     = '#20D7F2'
+    Mauve    = '#B8A5FF'
+    Teal     = '#63E6D1'
+    Peach    = '#FF9E64'
+    Lavender = '#9DB8FF'
 }
+
+$scriptDir = Split-Path -Parent $PSCommandPath
+$mainScript = Join-Path $scriptDir 'Disable-AdobeTelemetry.ps1'
+$logoSource = Join-Path $scriptDir 'branding\logo.png'
+if (-not (Test-Path -LiteralPath $logoSource)) { $logoSource = '' }
+$iconSource = Join-Path $scriptDir 'branding\logo.ico'
 
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Disable-AdobeTelemetry v2.5.0"
-        Width="800" Height="720"
-        MinWidth="640" MinHeight="520"
+        Title="Disable Adobe Telemetry v2.5.1"
+        Width="1280" Height="800"
+        MinWidth="1080" MinHeight="720"
         Background="$($colors.Base)"
+        FontFamily="Segoe UI"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
         <Style TargetType="Button">
@@ -59,8 +83,10 @@ $colors = @{
             <Setter Property="Foreground" Value="$($colors.Text)"/>
             <Setter Property="BorderBrush" Value="$($colors.Surface1)"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Padding" Value="14,8"/>
             <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="MinHeight" Value="38"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -68,7 +94,7 @@ $colors = @{
                         <Border x:Name="border" Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                CornerRadius="8" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -83,21 +109,119 @@ $colors = @{
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="$($colors.Blue)"/>
+            <Setter Property="Foreground" Value="#03131A"/>
+            <Setter Property="BorderBrush" Value="$($colors.Blue)"/>
+            <Setter Property="MinHeight" Value="44"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Foreground" Value="$($colors.Red)"/>
+            <Setter Property="BorderBrush" Value="#6B3540"/>
+        </Style>
+        <Style x:Key="QuietButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Foreground" Value="$($colors.Subtext1)"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style x:Key="CompactButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="Padding" Value="8,6"/>
+        </Style>
         <Style TargetType="ComboBox">
             <Setter Property="Background" Value="$($colors.Surface0)"/>
             <Setter Property="Foreground" Value="$($colors.Text)"/>
             <Setter Property="BorderBrush" Value="$($colors.Surface1)"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="MinHeight" Value="42"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="DropDownToggle" Focusable="False" ClickMode="Press"
+                                          Background="{TemplateBinding Background}"
+                                          BorderBrush="{TemplateBinding BorderBrush}"
+                                          BorderThickness="{TemplateBinding BorderThickness}"
+                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="comboBorder" Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8">
+                                            <Path Data="M 0 0 L 5 5 L 10 0 Z" Fill="$($colors.Subtext1)"
+                                                  Width="10" Height="5" HorizontalAlignment="Right"
+                                                  VerticalAlignment="Center" Margin="0,0,14,0"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <ContentPresenter Margin="14,0,38,0" VerticalAlignment="Center"
+                                              HorizontalAlignment="Left" IsHitTestVisible="False"
+                                              Content="{TemplateBinding SelectionBoxItem}"/>
+                            <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True"
+                                   Focusable="False" IsOpen="{TemplateBinding IsDropDownOpen}" PopupAnimation="Fade">
+                                <Border Background="$($colors.Mantle)" BorderBrush="$($colors.Surface1)"
+                                        BorderThickness="1" CornerRadius="8" Margin="0,4,0,0"
+                                        MinWidth="{TemplateBinding ActualWidth}">
+                                    <ScrollViewer MaxHeight="240">
+                                        <StackPanel IsItemsHost="True"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="$($colors.Text)"/>
+            <Setter Property="Background" Value="$($colors.Mantle)"/>
+            <Setter Property="Padding" Value="14,9"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Style.Triggers>
+                <Trigger Property="IsHighlighted" Value="True">
+                    <Setter Property="Background" Value="$($colors.Surface1)"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Foreground" Value="$($colors.Blue)"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
         <Style TargetType="CheckBox">
             <Setter Property="Foreground" Value="$($colors.Text)"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Margin" Value="0,2"/>
-        </Style>
-        <Style TargetType="Label">
-            <Setter Property="Foreground" Value="$($colors.Subtext1)"/>
-            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Margin" Value="0,3"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="22"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="checkBox" Width="17" Height="17" CornerRadius="4"
+                                    Background="$($colors.Surface0)" BorderBrush="$($colors.Surface2)"
+                                    BorderThickness="1" VerticalAlignment="Center">
+                                <Path x:Name="checkMark" Data="M 2 8 L 6 12 L 14 3" Stroke="#03131A"
+                                      StrokeThickness="2.2" Visibility="Collapsed"/>
+                            </Border>
+                            <ContentPresenter Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="checkBox" Property="Background" Value="$($colors.Blue)"/>
+                                <Setter TargetName="checkBox" Property="BorderBrush" Value="$($colors.Blue)"/>
+                                <Setter TargetName="checkMark" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="checkBox" Property="BorderBrush" Value="$($colors.Blue)"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style TargetType="TextBox">
             <Setter Property="Background" Value="$($colors.Surface0)"/>
@@ -105,154 +229,189 @@ $colors = @{
             <Setter Property="BorderBrush" Value="$($colors.Surface1)"/>
             <Setter Property="CaretBrush" Value="$($colors.Text)"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="Padding" Value="9,6"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
     </Window.Resources>
-    <Grid Margin="16">
+    <Grid x:Name="CaptureRoot" Background="$($colors.Base)">
+    <Grid x:Name="AppSurface" Margin="22">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="108"/>
+            <RowDefinition Height="14"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="12"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <StackPanel Grid.Row="0" Margin="0,0,0,12">
-            <TextBlock Text="Disable-AdobeTelemetry" FontSize="22" FontWeight="Bold"
-                       Foreground="$($colors.Blue)" Margin="0,0,0,2"/>
-            <TextBlock Text="Comprehensive Adobe telemetry and GrowthSDK suppression"
-                       FontSize="12" Foreground="$($colors.Subtext0)"/>
-        </StackPanel>
-
-        <!-- Controls row -->
-        <Grid Grid.Row="1" Margin="0,0,0,10">
+        <Border Grid.Row="0" Background="$($colors.Mantle)" CornerRadius="16"
+                BorderBrush="$($colors.Surface0)" BorderThickness="1" Padding="18,14">
+            <Grid>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="80"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="390"/>
+            </Grid.ColumnDefinitions>
+            <Image Grid.Column="0" Source="$logoSource" Width="68" Height="68" Stretch="Uniform"/>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="12,0,20,0">
+                <TextBlock Text="Disable Adobe Telemetry" FontSize="28" FontWeight="SemiBold"
+                           Foreground="$($colors.Text)"/>
+                <TextBlock Text="Keep the tools. Cut the tracking." FontSize="15"
+                           Foreground="$($colors.Subtext1)" Margin="0,5,0,0"/>
+            </StackPanel>
+            <UniformGrid Grid.Column="2" Rows="1" Columns="4" Margin="6,3,0,3">
+                <Border Background="$($colors.Surface0)" CornerRadius="8" Margin="4" Padding="10,9">
+                    <StackPanel VerticalAlignment="Center"><TextBlock Text="60" FontSize="18" FontWeight="Bold" Foreground="$($colors.Blue)"/><TextBlock Text="DOMAINS" FontSize="9" Foreground="$($colors.Subtext0)"/></StackPanel>
+                </Border>
+                <Border Background="$($colors.Surface0)" CornerRadius="8" Margin="4" Padding="10,9">
+                    <StackPanel VerticalAlignment="Center"><TextBlock Text="11" FontSize="18" FontWeight="Bold" Foreground="$($colors.Blue)"/><TextBlock Text="PHASES" FontSize="9" Foreground="$($colors.Subtext0)"/></StackPanel>
+                </Border>
+                <Border Background="$($colors.Surface0)" CornerRadius="8" Margin="4" Padding="10,9">
+                    <StackPanel VerticalAlignment="Center"><TextBlock Text="FULL" FontSize="15" FontWeight="Bold" Foreground="$($colors.Green)"/><TextBlock Text="UNDO" FontSize="9" Foreground="$($colors.Subtext0)"/></StackPanel>
+                </Border>
+                <Border Background="$($colors.Surface0)" CornerRadius="8" Margin="4" Padding="10,9">
+                    <StackPanel VerticalAlignment="Center"><TextBlock Text="LOCAL" FontSize="15" FontWeight="Bold" Foreground="$($colors.Green)"/><TextBlock Text="NO ACCOUNT" FontSize="9" Foreground="$($colors.Subtext0)"/></StackPanel>
+                </Border>
+            </UniformGrid>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="408"/>
+                <ColumnDefinition Width="14"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,16,0">
-                <Label Content="Profile:" VerticalAlignment="Center"/>
-                <ComboBox x:Name="ProfileCombo" Width="120" VerticalAlignment="Center">
-                    <ComboBoxItem Content="Minimal"/>
-                    <ComboBoxItem Content="Standard" IsSelected="True"/>
-                    <ComboBoxItem Content="Aggressive"/>
-                </ComboBox>
-            </StackPanel>
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="12"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Border Grid.Row="0" Background="$($colors.Mantle)" CornerRadius="14"
+                        BorderBrush="$($colors.Surface0)" BorderThickness="1" Padding="18">
+                    <StackPanel>
+                        <TextBlock Text="Protection setup" FontSize="17" FontWeight="SemiBold" Foreground="$($colors.Text)"/>
+                        <TextBlock Text="Choose how far the controls should reach." FontSize="12"
+                                   Foreground="$($colors.Subtext0)" Margin="0,3,0,14"/>
+                        <TextBlock Text="PROFILE" FontSize="10" FontWeight="Bold" Foreground="$($colors.Subtext0)" Margin="0,0,0,6"/>
+                        <ComboBox x:Name="ProfileCombo">
+                            <ComboBoxItem Content="Minimal"/>
+                            <ComboBoxItem Content="Standard" IsSelected="True"/>
+                            <ComboBoxItem Content="Aggressive"/>
+                        </ComboBox>
+                        <TextBlock Text="Standard blocks telemetry while keeping sign-in and downloads available."
+                                   TextWrapping="Wrap" FontSize="11" Foreground="$($colors.Subtext0)" Margin="0,7,0,9"/>
+                        <CheckBox x:Name="DryRunCheck" Content="Preview changes only"/>
+                        <CheckBox x:Name="VerboseCheck" Content="Show the reason for each action"/>
+                        <CheckBox x:Name="LockHostsCheck" Content="Protect the hosts file from SYSTEM writes"/>
+                        <CheckBox x:Name="AllUsersCheck" Content="Apply registry policy to every user profile"/>
+                        <Button x:Name="RunButton" Content="Apply protections" Style="{StaticResource PrimaryButton}" Margin="0,12,0,0"/>
+                        <Grid Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Button x:Name="StatusButton" Grid.Column="0" Content="Status check" MinHeight="34"/>
+                            <Button x:Name="UndoButton" Grid.Column="2" Content="Undo all" Style="{StaticResource DangerButton}" MinHeight="34"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
 
-            <StackPanel Grid.Column="1" Margin="0,0,16,0">
-                <CheckBox x:Name="DryRunCheck" Content="Dry Run"/>
-                <CheckBox x:Name="VerboseCheck" Content="Show Rationale"/>
-                <CheckBox x:Name="LockHostsCheck" Content="Lock hosts file (deny SYSTEM write)"/>
-                <CheckBox x:Name="AllUsersCheck" Content="Apply to all user profiles"/>
-            </StackPanel>
+                <Border Grid.Row="2" Background="$($colors.Mantle)" CornerRadius="14"
+                        BorderBrush="$($colors.Surface0)" BorderThickness="1" Padding="14">
+                    <StackPanel>
+                        <TextBlock Text="Operations" FontSize="17" FontWeight="SemiBold" Foreground="$($colors.Text)"/>
+                        <TextBlock Text="Reports, recovery, and fleet-ready exports." FontSize="12"
+                                   Foreground="$($colors.Subtext0)" Margin="0,3,0,8"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="6"/><RowDefinition Height="Auto"/><RowDefinition Height="6"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <Button x:Name="ConnectionButton" Grid.Row="0" Grid.Column="0" Content="Connection report" Style="{StaticResource CompactButton}" Foreground="$($colors.Teal)"/>
+                            <Button x:Name="SaveJsonButton" Grid.Row="0" Grid.Column="2" Content="Save status JSON" Style="{StaticResource CompactButton}" Foreground="$($colors.Yellow)"/>
+                            <Button x:Name="WatchdogInstallButton" Grid.Row="2" Grid.Column="0" Content="Install watchdog" Style="{StaticResource CompactButton}" Foreground="$($colors.Lavender)"/>
+                            <Button x:Name="WatchdogRemoveButton" Grid.Row="2" Grid.Column="2" Content="Remove watchdog" Style="{StaticResource CompactButton}" Foreground="$($colors.Lavender)"/>
+                            <Button x:Name="ImportProfileButton" Grid.Row="4" Grid.Column="0" Content="Import profile" Style="{StaticResource CompactButton}" Foreground="$($colors.Mauve)"/>
+                            <Button x:Name="ExportProfileButton" Grid.Row="4" Grid.Column="2" Content="Export profile" Style="{StaticResource CompactButton}" Foreground="$($colors.Mauve)"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="12"/><RowDefinition Height="176"/></Grid.RowDefinitions>
+                <Border Grid.Row="0" Background="$($colors.Mantle)" CornerRadius="14"
+                        BorderBrush="$($colors.Surface0)" BorderThickness="1" Padding="16">
+                    <Grid>
+                        <Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <Grid Grid.Row="0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Activity" FontSize="17" FontWeight="SemiBold" Foreground="$($colors.Text)"/>
+                                <TextBlock Text="Live output and verification details" FontSize="11" Foreground="$($colors.Subtext0)"/>
+                            </StackPanel>
+                            <Button x:Name="ClearButton" Grid.Column="1" Content="Clear log" Style="{StaticResource QuietButton}" MinHeight="30" Padding="11,5"/>
+                        </Grid>
+                        <Border Grid.Row="1" Background="$($colors.Crust)" CornerRadius="9"
+                                BorderBrush="$($colors.Surface0)" BorderThickness="1">
+                            <RichTextBox x:Name="LogBox" IsReadOnly="True" VerticalScrollBarVisibility="Auto"
+                                         Background="Transparent" Foreground="$($colors.Text)"
+                                         FontFamily="Cascadia Mono,Consolas,Courier New" FontSize="12"
+                                         BorderThickness="0" Padding="12">
+                                <RichTextBox.Resources>
+                                    <Style TargetType="Paragraph"><Setter Property="Margin" Value="0,2"/></Style>
+                                </RichTextBox.Resources>
+                            </RichTextBox>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="2" Background="$($colors.Mantle)" CornerRadius="14"
+                        BorderBrush="$($colors.Surface0)" BorderThickness="1" Padding="16,13">
+                    <Grid>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="10"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0">
+                            <TextBlock Text="Network diagnostics" FontSize="16" FontWeight="SemiBold" Foreground="$($colors.Text)"/>
+                            <TextBlock Text="Capture blocked traffic or test one Adobe application." FontSize="11" Foreground="$($colors.Subtext0)"/>
+                        </StackPanel>
+                        <Grid Grid.Row="2">
+                            <Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="8"/><RowDefinition Height="42"/></Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="92"/><ColumnDefinition Width="74"/><ColumnDefinition Width="*"/><ColumnDefinition Width="44"/><ColumnDefinition Width="110"/></Grid.ColumnDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="WFP trace" Foreground="$($colors.Peach)" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBox x:Name="TraceMinutesBox" Grid.Row="0" Grid.Column="1" Text="10" ToolTip="Minutes" Margin="0,0,8,0"/>
+                            <TextBox x:Name="TraceOutputBox" Grid.Row="0" Grid.Column="2" ToolTip="Optional output file"/>
+                            <Button x:Name="TraceBrowseButton" Grid.Row="0" Grid.Column="3" Content="..." Margin="6,0,0,0" Padding="5"/>
+                            <Button x:Name="TraceStartButton" Grid.Row="0" Grid.Column="4" Content="Start trace" Foreground="$($colors.Peach)" Margin="8,0,0,0"/>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="App test" Foreground="$($colors.Peach)" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBox x:Name="PlumbingMinutesBox" Grid.Row="2" Grid.Column="1" Text="10" ToolTip="Minutes" Margin="0,0,8,0"/>
+                            <TextBox x:Name="PlumbingAppBox" Grid.Row="2" Grid.Column="2" Text="Premiere" ToolTip="Adobe application name"/>
+                            <Button x:Name="PlumbingStartButton" Grid.Row="2" Grid.Column="4" Content="Start test" Foreground="$($colors.Peach)" Margin="8,0,0,0"/>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </Grid>
         </Grid>
 
-        <!-- Primary action buttons -->
-        <WrapPanel Grid.Row="2" Margin="0,0,0,8">
-            <Button x:Name="RunButton" Content="Apply Protections" Margin="0,0,8,0"
-                    Background="$($colors.Surface0)" Foreground="$($colors.Green)"/>
-            <Button x:Name="StatusButton" Content="Status Check" Margin="0,0,8,0"/>
-            <Button x:Name="UndoButton" Content="Undo All" Margin="0,0,8,0"
-                    Foreground="$($colors.Red)"/>
-            <Button x:Name="ConnectionButton" Content="Connection Report" Margin="0,0,8,0"
-                    Foreground="$($colors.Teal)"/>
-            <Button x:Name="ClearButton" Content="Clear Log" Margin="0,0,0,0"
-                    Foreground="$($colors.Subtext0)"/>
-        </WrapPanel>
-
-        <!-- Tool buttons -->
-        <WrapPanel Grid.Row="3" Margin="0,0,0,8">
-            <Button x:Name="WatchdogInstallButton" Content="Install Watchdog" Margin="0,0,8,0"
-                    Foreground="$($colors.Lavender)"/>
-            <Button x:Name="WatchdogRemoveButton" Content="Remove Watchdog" Margin="0,0,8,0"
-                    Foreground="$($colors.Lavender)"/>
-            <Button x:Name="ImportProfileButton" Content="Import Profile" Margin="0,0,8,0"
-                    Foreground="$($colors.Mauve)"/>
-            <Button x:Name="ExportProfileButton" Content="Export Profile" Margin="0,0,8,0"
-                    Foreground="$($colors.Mauve)"/>
-            <Button x:Name="SaveJsonButton" Content="Save JSON Status" Margin="0,0,0,0"
-                    Foreground="$($colors.Yellow)"/>
-        </WrapPanel>
-
-        <!-- Diagnostics -->
-        <Border Grid.Row="4" Background="$($colors.Mantle)" CornerRadius="6"
-                BorderBrush="$($colors.Surface0)" BorderThickness="1" Padding="10,8" Margin="0,0,0,10">
-            <StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                    <TextBlock Text="WFP Trace" Foreground="$($colors.Peach)" FontSize="12"
-                               FontWeight="SemiBold" VerticalAlignment="Center" Width="80"/>
-                    <TextBlock Text="Mins:" Foreground="$($colors.Subtext0)" FontSize="12"
-                               VerticalAlignment="Center" Margin="0,0,4,0"/>
-                    <TextBox x:Name="TraceMinutesBox" Width="48" Text="10"/>
-                    <TextBlock Text="Output:" Foreground="$($colors.Subtext0)" FontSize="12"
-                               VerticalAlignment="Center" Margin="10,0,4,0"/>
-                    <TextBox x:Name="TraceOutputBox" Width="200"/>
-                    <Button x:Name="TraceBrowseButton" Content="..." Padding="8,4" Margin="4,0,0,0"/>
-                    <Button x:Name="TraceStartButton" Content="Start Trace" Margin="8,0,0,0"
-                            Foreground="$($colors.Peach)" Padding="12,4"/>
-                </StackPanel>
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="Plumbing" Foreground="$($colors.Peach)" FontSize="12"
-                               FontWeight="SemiBold" VerticalAlignment="Center" Width="80"/>
-                    <TextBlock Text="App:" Foreground="$($colors.Subtext0)" FontSize="12"
-                               VerticalAlignment="Center" Margin="0,0,4,0"/>
-                    <TextBox x:Name="PlumbingAppBox" Width="100" Text="Premiere"/>
-                    <TextBlock Text="Mins:" Foreground="$($colors.Subtext0)" FontSize="12"
-                               VerticalAlignment="Center" Margin="10,0,4,0"/>
-                    <TextBox x:Name="PlumbingMinutesBox" Width="48" Text="10"/>
-                    <Button x:Name="PlumbingStartButton" Content="Start Test" Margin="8,0,0,0"
-                            Foreground="$($colors.Peach)" Padding="12,4"/>
-                </StackPanel>
-            </StackPanel>
-        </Border>
-
-        <!-- Log output -->
-        <Border Grid.Row="5" Background="$($colors.Crust)" CornerRadius="6"
+        <Border Grid.Row="4" Background="$($colors.Mantle)" CornerRadius="9" Padding="12,8"
                 BorderBrush="$($colors.Surface0)" BorderThickness="1">
-            <RichTextBox x:Name="LogBox" IsReadOnly="True" VerticalScrollBarVisibility="Auto"
-                         Background="Transparent" Foreground="$($colors.Text)"
-                         FontFamily="Cascadia Mono,Consolas,Courier New" FontSize="12"
-                         BorderThickness="0" Padding="8">
-                <RichTextBox.Resources>
-                    <Style TargetType="Paragraph">
-                        <Setter Property="Margin" Value="0,1"/>
-                    </Style>
-                </RichTextBox.Resources>
-            </RichTextBox>
-        </Border>
-
-        <!-- Status bar -->
-        <Border Grid.Row="6" Background="$($colors.Mantle)" CornerRadius="4" Margin="0,8,0,0" Padding="10,6">
             <StackPanel>
-                <ProgressBar x:Name="BusyBar" Height="4" IsIndeterminate="True" Visibility="Collapsed"
-                             Margin="0,0,0,6" Background="Transparent" Foreground="$($colors.Mauve)" BorderThickness="0"/>
+                <ProgressBar x:Name="BusyBar" Height="3" IsIndeterminate="True" Visibility="Collapsed"
+                             Margin="0,0,0,6" Background="Transparent" Foreground="$($colors.Blue)" BorderThickness="0"/>
                 <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="StatusText" Grid.Column="0" Text="Ready"
-                               Foreground="$($colors.Subtext0)" FontSize="12" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="UpdateText" Grid.Column="1" Text="" Margin="0,0,12,0"
-                               Foreground="$($colors.Yellow)" FontSize="11" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="VersionText" Grid.Column="2" Text="v2.5.0"
-                               Foreground="$($colors.Surface2)" FontSize="11" VerticalAlignment="Center"/>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="StatusText" Grid.Column="0" Text="Ready" Foreground="$($colors.Green)" FontSize="12" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="UpdateText" Grid.Column="1" Text="" Margin="0,0,14,0" Foreground="$($colors.Yellow)" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="VersionText" Grid.Column="2" Text="v2.5.1" Foreground="$($colors.Subtext0)" FontSize="11" VerticalAlignment="Center"/>
                 </Grid>
             </StackPanel>
         </Border>
+    </Grid>
     </Grid>
 </Window>
 "@
 
 $reader = New-Object System.Xml.XmlNodeReader $xaml
 $window = [Windows.Markup.XamlReader]::Load($reader)
+if (Test-Path -LiteralPath $iconSource) {
+    $window.Icon = [System.Windows.Media.Imaging.BitmapFrame]::Create([uri]$iconSource)
+}
 
 $logBox = $window.FindName('LogBox')
 $statusText = $window.FindName('StatusText')
@@ -342,9 +501,6 @@ function Set-StatusText {
         $statusText.Text = $message
     })
 }
-
-$scriptDir = Split-Path -Parent $PSCommandPath
-$mainScript = Join-Path $scriptDir 'Disable-AdobeTelemetry.ps1'
 
 # Thread-safe list of child powershell.exe PIDs so the window Closing handler can
 # terminate any operation still running when the user closes the GUI.
@@ -560,12 +716,13 @@ $plumbingStartButton.Add_Click({
                        -StatusMsg "Running plumbing test ($app, $minutes min)..."
 })
 
-Write-LogLine "  Disable-AdobeTelemetry GUI v2.5.0"
-Write-LogLine "  Script: $mainScript"
+Write-LogLine "  Disable Adobe Telemetry GUI v2.5.1"
+Write-LogLine "  [OK] Ready to protect this PC."
+Write-LogLine "  [..] Standard covers 60 telemetry endpoints across 11 protection phases."
+Write-LogLine "  [..] Run Status check first, or enable Preview changes only before applying."
 if (-not (Test-Path $mainScript)) {
     Write-LogLine "  [!!] Main script not found. Place this GUI alongside Disable-AdobeTelemetry.ps1."
 }
-Write-LogLine ""
 
 # Surface an "update available" label from the CLI's update-check cache (best-effort)
 try {
@@ -593,5 +750,80 @@ $window.Add_Closing({
         } catch { }
     }
 })
+
+function Set-MarketingCaptureState {
+    param([string]$View)
+
+    $logBox.Document.Blocks.Clear()
+    $profileCombo.SelectedIndex = 1
+    $dryRunCheck.IsChecked = $false
+    $verboseCheck.IsChecked = $false
+    $lockHostsCheck.IsChecked = $false
+    $allUsersCheck.IsChecked = $false
+
+    switch ($View.ToLowerInvariant()) {
+        'status' {
+            $statusText.Text = 'Status check complete'
+            Write-LogLine '  === Protection status'
+            Write-LogLine '  [OK] Hosts block: all 60 Standard endpoints are present'
+            Write-LogLine '  [OK] Firewall: Adobe telemetry rules are active'
+            Write-LogLine '  [OK] Registry: usage data policies are applied'
+            Write-LogLine '  [OK] GrowthSDK blocker is in place'
+            Write-LogLine '  [--] Weekly watchdog is not installed'
+            Write-LogLine '  [..] This check did not change the system'
+        }
+        'dry-run' {
+            $dryRunCheck.IsChecked = $true
+            $verboseCheck.IsChecked = $true
+            $statusText.Text = 'Preview complete. No changes made.'
+            Write-LogLine '  === Standard profile preview'
+            Write-LogLine '  [..] Would stop Adobe background telemetry processes'
+            Write-LogLine '  [..] Would neutralize GrowthSDK and persistent launch points'
+            Write-LogLine '  [..] Would apply 60 firewall and hosts protections'
+            Write-LogLine '  [..] Would set usage-data registry policies'
+            Write-LogLine '  [OK] Preview finished. No system changes were made.'
+        }
+        default {
+            $statusText.Text = 'Ready'
+            Write-LogLine '  Disable Adobe Telemetry GUI v2.5.1'
+            Write-LogLine '  [OK] Ready to protect this PC.'
+            Write-LogLine '  [..] Standard covers 60 telemetry endpoints across 11 protection phases.'
+            Write-LogLine '  [..] Run Status check first, or enable Preview changes only before applying.'
+        }
+    }
+}
+
+function Export-MarketingCapture {
+    param([Parameter(Mandatory)][string]$OutputPath)
+
+    $targetDirectory = Split-Path -Parent $OutputPath
+    if (-not (Test-Path -LiteralPath $targetDirectory)) {
+        New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null
+    }
+
+    $captureRoot = $window.FindName('CaptureRoot')
+    $captureSize = [System.Windows.Size]::new(1280, 800)
+    $captureRoot.Measure($captureSize)
+    $captureRoot.Arrange([System.Windows.Rect]::new(0, 0, 1280, 800))
+    $captureRoot.UpdateLayout()
+
+    $bitmap = [System.Windows.Media.Imaging.RenderTargetBitmap]::new(
+        1600, 1000, 120, 120, [System.Windows.Media.PixelFormats]::Pbgra32
+    )
+    $bitmap.Render($captureRoot)
+    $encoder = [System.Windows.Media.Imaging.PngBitmapEncoder]::new()
+    $encoder.Frames.Add([System.Windows.Media.Imaging.BitmapFrame]::Create($bitmap))
+    $stream = [System.IO.File]::Open($OutputPath, [System.IO.FileMode]::Create)
+    try { $encoder.Save($stream) } finally { $stream.Dispose() }
+}
+
+if ($marketingCapture) {
+    $captureView = if ($env:DISABLE_ADOBE_MARKETING_VIEW) { $env:DISABLE_ADOBE_MARKETING_VIEW } else { 'overview' }
+    $captureOutput = $env:DISABLE_ADOBE_MARKETING_OUTPUT
+    if (-not $captureOutput) { throw 'DISABLE_ADOBE_MARKETING_OUTPUT is required in capture mode.' }
+    Set-MarketingCaptureState -View $captureView
+    Export-MarketingCapture -OutputPath $captureOutput
+    return
+}
 
 $window.ShowDialog() | Out-Null

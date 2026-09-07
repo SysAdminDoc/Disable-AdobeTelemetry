@@ -136,7 +136,9 @@ foreach ($section in $sections.Keys) {
 $updated = ($updated -replace "`r`n", "`n") -replace "`n", "`r`n"
 
 if ($Verify) {
-    if ($updated -eq $content) {
+    $normalizedCurrent = $content -replace "`r`n", "`n"
+    $normalizedUpdated = $updated -replace "`r`n", "`n"
+    if ($normalizedUpdated -eq $normalizedCurrent) {
         Write-Host 'Inventories are in sync.' -ForegroundColor Green
         exit 0
     } else {

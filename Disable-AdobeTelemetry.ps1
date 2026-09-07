@@ -70,8 +70,8 @@
 
 .NOTES
     Author  : SysAdminDoc
-    Version : 2.5.0
-    Date    : 2026-07-01
+    Version : 2.5.1
+    Date    : 2026-09-07
 
     Exit codes:
       0    = Success (no reboot needed) or dry run completed
@@ -83,6 +83,8 @@
 
 #Requires -Version 5.1
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'LockHostsFile', Justification = 'The switch is consumed by the script body and covered by Pester.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'AllUsers', Justification = 'The switch is consumed by the script body and covered by Pester.')]
 param(
     [switch]$Undo,
     [switch]$StatusOnly,
@@ -144,7 +146,7 @@ if (-not $isAdmin) {
 
 $ErrorActionPreference = 'Continue'
 
-$script:DisplayVersion = 'v2.5.0'
+$script:DisplayVersion = 'v2.5.1'
 $script:Version = $script:DisplayVersion.TrimStart('v')
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
 $script:LogDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\logs'
@@ -3189,13 +3191,12 @@ function Test-UpdateAvailable {
     if (-not $cacheFresh) {
         # Fire-and-forget refresh; result is consumed on a later run so this never blocks.
         Start-Job -ScriptBlock {
-            param($cachePath)
             try {
                 $resp = Invoke-RestMethod -Uri 'https://api.github.com/repos/SysAdminDoc/Disable-AdobeTelemetry/releases/latest' -Headers @{ 'User-Agent' = 'Disable-AdobeTelemetry' } -UseBasicParsing -TimeoutSec 8 -ErrorAction Stop
                 @{ LatestTag = $resp.tag_name; CheckedUtc = [datetime]::UtcNow.ToString('o') } |
-                    ConvertTo-Json | Set-Content -LiteralPath $cachePath -Encoding UTF8 -Force
+                    ConvertTo-Json | Set-Content -LiteralPath $using:cachePath -Encoding UTF8 -Force
             } catch { }
-        } -ArgumentList $cachePath | Out-Null
+        } | Out-Null
     }
 }
 

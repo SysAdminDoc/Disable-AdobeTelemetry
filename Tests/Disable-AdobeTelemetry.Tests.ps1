@@ -838,6 +838,52 @@ Describe 'GUI Script' {
         $guiContent | Should -Match 'capturedLines'
     }
 
+    It 'provides a no-write marketing capture mode' {
+        $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
+        $guiContent = Get-Content $guiPath -Raw
+
+        $guiContent | Should -Match 'DISABLE_ADOBE_MARKETING_CAPTURE'
+        $guiContent | Should -Match 'DISABLE_ADOBE_MARKETING_VIEW'
+        $guiContent | Should -Match 'DISABLE_ADOBE_MARKETING_OUTPUT'
+        $guiContent | Should -Match 'RenderTargetBitmap'
+        $guiContent | Should -Match "if \(-not \`$isAdmin -and -not \`$marketingCapture\)"
+        $guiContent | Should -Match "if \(\`$marketingCapture\)"
+        $guiContent | Should -Match 'No system changes were made'
+    }
+
+    It 'uses the branded shield and recovery artwork' {
+        $repoRoot = Join-Path $PSScriptRoot '..'
+        $guiContent = Get-Content (Join-Path $repoRoot 'Disable-AdobeTelemetry.GUI.ps1') -Raw
+        $guiContent | Should -Match 'branding\\logo\.png'
+        $guiContent | Should -Match 'branding\\logo\.ico'
+
+        foreach ($relativePath in @(
+            'branding\logo.png',
+            'branding\logo-small.png',
+            'branding\logo.ico',
+            'assets\brand\disable-adobe-telemetry-readme-banner.png',
+            'assets\brand\disable-adobe-telemetry-social-preview.png'
+        )) {
+            Test-Path -LiteralPath (Join-Path $repoRoot $relativePath) | Should -BeTrue
+        }
+    }
+
+    It 'ships three verified marketing captures at the expected size' {
+        $reportPath = Join-Path $PSScriptRoot '..\assets\screenshots\capture-report.json'
+        Test-Path -LiteralPath $reportPath | Should -BeTrue
+        $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+        $report.version | Should -Be '2.5.1'
+        @($report.captures).Count | Should -Be 3
+        @($report.captures.view) | Should -Be @('overview', 'status', 'dry-run')
+        foreach ($capture in $report.captures) {
+            $capture.width | Should -Be 1600
+            $capture.height | Should -Be 1000
+            $capture.bytes | Should -BeGreaterThan 100000
+            $capture.sha256 | Should -Match '^[a-f0-9]{64}$'
+            Test-Path -LiteralPath (Join-Path (Split-Path -Parent $reportPath) $capture.file) | Should -BeTrue
+        }
+    }
+
     It 'validates trace and plumbing minute inputs' {
         $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
         if (-not (Test-Path $guiPath)) { Set-ItResult -Skipped -Because 'GUI script not present'; return }
@@ -1270,7 +1316,7 @@ Describe 'Audit Regression Tests' {
 
         # Behavioral: newer cached tag warns, same tag does not
         function Write-Status { param($Message, $Type) $script:__updMsgs += ,"$Type|$Message" }
-        $script:Version = '2.5.0'
+        $script:Version = '2.5.1'
         Invoke-Expression $body
         $cachePath = Join-Path (Join-Path $env:APPDATA 'Disable-AdobeTelemetry') 'update-check.json'
         try {
@@ -1280,7 +1326,7 @@ Describe 'Audit Regression Tests' {
             ($script:__updMsgs -join ' ') | Should -Match 'Update available: v9.9.9'
 
             $script:__updMsgs = @()
-            @{ LatestTag = 'v2.5.0'; CheckedUtc = [datetime]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content $cachePath -Encoding UTF8
+            @{ LatestTag = 'v2.5.1'; CheckedUtc = [datetime]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content $cachePath -Encoding UTF8
             Test-UpdateAvailable
             ($script:__updMsgs -join ' ') | Should -Not -Match 'Update available'
         } finally {
