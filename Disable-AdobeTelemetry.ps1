@@ -70,7 +70,7 @@
 
 .NOTES
     Author  : SysAdminDoc
-    Version : 2.5.1
+    Version : 2.5.2
     Date    : 2026-09-07
 
     Exit codes:
@@ -146,7 +146,7 @@ if (-not $isAdmin) {
 
 $ErrorActionPreference = 'Continue'
 
-$script:DisplayVersion = 'v2.5.1'
+$script:DisplayVersion = 'v2.5.2'
 $script:Version = $script:DisplayVersion.TrimStart('v')
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
 $script:LogDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\logs'

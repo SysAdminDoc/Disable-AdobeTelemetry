@@ -872,7 +872,7 @@ Describe 'GUI Script' {
         $reportPath = Join-Path $PSScriptRoot '..\assets\screenshots\capture-report.json'
         Test-Path -LiteralPath $reportPath | Should -BeTrue
         $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
-        $report.version | Should -Be '2.5.1'
+        $report.version | Should -Be '2.5.2'
         @($report.captures).Count | Should -Be 3
         @($report.captures.view) | Should -Be @('overview', 'status', 'dry-run')
         foreach ($capture in $report.captures) {
@@ -1316,7 +1316,7 @@ Describe 'Audit Regression Tests' {
 
         # Behavioral: newer cached tag warns, same tag does not
         function Write-Status { param($Message, $Type) $script:__updMsgs += ,"$Type|$Message" }
-        $script:Version = '2.5.1'
+        $script:Version = '2.5.2'
         Invoke-Expression $body
         $cachePath = Join-Path (Join-Path $env:APPDATA 'Disable-AdobeTelemetry') 'update-check.json'
         try {
@@ -1326,7 +1326,7 @@ Describe 'Audit Regression Tests' {
             ($script:__updMsgs -join ' ') | Should -Match 'Update available: v9.9.9'
 
             $script:__updMsgs = @()
-            @{ LatestTag = 'v2.5.1'; CheckedUtc = [datetime]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content $cachePath -Encoding UTF8
+            @{ LatestTag = 'v2.5.2'; CheckedUtc = [datetime]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content $cachePath -Encoding UTF8
             Test-UpdateAvailable
             ($script:__updMsgs -join ' ') | Should -Not -Match 'Update available'
         } finally {

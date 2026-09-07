@@ -1,6 +1,6 @@
 {
   "product": "Disable Adobe Telemetry",
-  "version": "2.5.1",
+  "version": "2.5.2",
   "renderer": "WPF RenderTargetBitmap at 125 percent DPI",
   "captures": [
     {
@@ -8,24 +8,24 @@
       "file": "01-control-center.png",
       "width": 1600,
       "height": 1000,
-      "bytes": 133792,
-      "sha256": "9052c45166fcf6cb8a80a60f2241d47bed5c32b0d56ec9996a7353d0604330b2"
+      "bytes": 134012,
+      "sha256": "6bed50ff230f709f9ca3fd038371c0551aa493add09845e6149a25ed9d5c6b0d"
     },
     {
       "view": "status",
       "file": "02-status-check.png",
       "width": 1600,
       "height": 1000,
-      "bytes": 144856,
-      "sha256": "09a53f2129aad5fbdfb3013549668ea0db432717b614513726a276486356d24b"
+      "bytes": 144910,
+      "sha256": "1842cbc49d391e371f136dedf91f4eac5cd41efded8ab62da1eac9ca92da4de0"
     },
     {
       "view": "dry-run",
       "file": "03-dry-run-preview.png",
       "width": 1600,
       "height": 1000,
-      "bytes": 147525,
-      "sha256": "ee5585f366f2a0f67d890512235d2bb933e2ea1bb82b6ca0b02b58dac0f9fca5"
+      "bytes": 147581,
+      "sha256": "3e335780e819b516b4cb37d9a6154b12bf4e4d5e03f2e1998b0a2d5b28be6e69"
     }
   ]
 }

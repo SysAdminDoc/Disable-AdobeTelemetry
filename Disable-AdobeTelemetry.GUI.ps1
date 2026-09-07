@@ -6,7 +6,7 @@
     streaming log output. Operations run asynchronously to keep the interface responsive.
 .NOTES
     Author  : SysAdminDoc
-    Version : 2.5.1
+    Version : 2.5.2
     Date    : 2026-09-07
 #>
 
@@ -69,7 +69,7 @@ $iconSource = Join-Path $scriptDir 'branding\logo.ico'
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Disable Adobe Telemetry v2.5.1"
+        Title="Disable Adobe Telemetry v2.5.2"
         Width="1280" Height="800"
         MinWidth="1080" MinHeight="720"
         Background="$($colors.Base)"
@@ -398,7 +398,7 @@ $iconSource = Join-Path $scriptDir 'branding\logo.ico'
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <TextBlock x:Name="StatusText" Grid.Column="0" Text="Ready" Foreground="$($colors.Green)" FontSize="12" VerticalAlignment="Center"/>
                     <TextBlock x:Name="UpdateText" Grid.Column="1" Text="" Margin="0,0,14,0" Foreground="$($colors.Yellow)" FontSize="11" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="VersionText" Grid.Column="2" Text="v2.5.1" Foreground="$($colors.Subtext0)" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="VersionText" Grid.Column="2" Text="v2.5.2" Foreground="$($colors.Subtext0)" FontSize="11" VerticalAlignment="Center"/>
                 </Grid>
             </StackPanel>
         </Border>
@@ -716,7 +716,7 @@ $plumbingStartButton.Add_Click({
                        -StatusMsg "Running plumbing test ($app, $minutes min)..."
 })
 
-Write-LogLine "  Disable Adobe Telemetry GUI v2.5.1"
+Write-LogLine "  Disable Adobe Telemetry GUI v2.5.2"
 Write-LogLine "  [OK] Ready to protect this PC."
 Write-LogLine "  [..] Standard covers 60 telemetry endpoints across 11 protection phases."
 Write-LogLine "  [..] Run Status check first, or enable Preview changes only before applying."
@@ -785,7 +785,7 @@ function Set-MarketingCaptureState {
         }
         default {
             $statusText.Text = 'Ready'
-            Write-LogLine '  Disable Adobe Telemetry GUI v2.5.1'
+            Write-LogLine '  Disable Adobe Telemetry GUI v2.5.2'
             Write-LogLine '  [OK] Ready to protect this PC.'
             Write-LogLine '  [..] Standard covers 60 telemetry endpoints across 11 protection phases.'
             Write-LogLine '  [..] Run Status check first, or enable Preview changes only before applying.'

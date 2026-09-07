@@ -73,11 +73,13 @@ try {
 }
 
 $reportPath = Join-Path $OutputDirectory 'capture-report.json'
-[ordered]@{
+$reportJson = [ordered]@{
     product = 'Disable Adobe Telemetry'
-    version = '2.5.1'
+    version = '2.5.2'
     renderer = 'WPF RenderTargetBitmap at 125 percent DPI'
     captures = $report
-} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $reportPath -Encoding UTF8
+} | ConvertTo-Json -Depth 4
+$reportJson = ($reportJson -replace "`r`n", "`n") + "`n"
+[System.IO.File]::WriteAllText($reportPath, $reportJson, [System.Text.UTF8Encoding]::new($false))
 
 Write-Host "Captured $($views.Count) marketing screenshots to $OutputDirectory"

@@ -7,14 +7,14 @@
 <p align="center"><strong>Reversible Windows privacy controls for Adobe background telemetry and GrowthSDK.</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.5.1-20d7f2?style=flat-square" alt="Version 2.5.1">
+  <img src="https://img.shields.io/badge/version-2.5.2-20d7f2?style=flat-square" alt="Version 2.5.2">
   <img src="https://img.shields.io/badge/license-MIT-55d6a7?style=flat-square" alt="MIT License">
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-9db8ff?style=flat-square" alt="Windows 10 and 11">
   <img src="https://img.shields.io/badge/PowerShell-5.1%2B-ff9e64?style=flat-square" alt="PowerShell 5.1 or newer">
 </p>
 
 <p align="center">
-  <a href="https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/download/v2.5.1/Disable-AdobeTelemetry-v2.5.1.zip"><strong>Download v2.5.1</strong></a>
+  <a href="https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/download/v2.5.2/Disable-AdobeTelemetry-v2.5.2.zip"><strong>Download v2.5.2</strong></a>
   &nbsp;&bull;&nbsp;
   <a href="#start-safely">Start safely</a>
   &nbsp;&bull;&nbsp;
@@ -60,7 +60,7 @@ real WPF interface. Capturing them does not inspect or modify the machine.
 
 ## Start safely
 
-1. Download and extract [`Disable-AdobeTelemetry-v2.5.1.zip`](https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/download/v2.5.1/Disable-AdobeTelemetry-v2.5.1.zip).
+1. Download and extract [`Disable-AdobeTelemetry-v2.5.2.zip`](https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/download/v2.5.2/Disable-AdobeTelemetry-v2.5.2.zip).
 2. Open `Disable-AdobeTelemetry.GUI.ps1`. Windows will request administrator access.
 3. Run **Status check** to see the current state.
 4. Enable **Preview changes only**, then run **Apply protections** to review the plan.
@@ -177,7 +177,7 @@ Download the latest release ZIP from [GitHub Releases](https://github.com/SysAdm
 
 ```powershell
 # Verify the download checksum
-(Get-FileHash Disable-AdobeTelemetry-v2.5.1.zip -Algorithm SHA256).Hash
+(Get-FileHash Disable-AdobeTelemetry-v2.5.2.zip -Algorithm SHA256).Hash
 # Compare against the hash in SHA256SUMS.txt from the same release
 ```
 
