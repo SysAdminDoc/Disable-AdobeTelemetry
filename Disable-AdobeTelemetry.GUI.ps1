@@ -6,8 +6,8 @@
     streaming log output. Operations run asynchronously to keep the interface responsive.
 .NOTES
     Author  : SysAdminDoc
-    Version : 2.5.2
-    Date    : 2026-09-07
+    Version : 2.5.3
+    Date    : 2026-09-08
 #>
 
 $ErrorActionPreference = 'Stop'
@@ -69,7 +69,7 @@ $iconSource = Join-Path $scriptDir 'branding\logo.ico'
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Disable Adobe Telemetry v2.5.2"
+        Title="Disable Adobe Telemetry v2.5.3"
         Width="1280" Height="800"
         MinWidth="1080" MinHeight="720"
         Background="$($colors.Base)"
@@ -266,7 +266,7 @@ $iconSource = Join-Path $scriptDir 'branding\logo.ico'
                     <StackPanel VerticalAlignment="Center"><TextBlock Text="11" FontSize="18" FontWeight="Bold" Foreground="$($colors.Blue)"/><TextBlock Text="PHASES" FontSize="9" Foreground="$($colors.Subtext0)"/></StackPanel>
                 </Border>
                 <Border Background="$($colors.Surface0)" CornerRadius="8" Margin="4" Padding="10,9">
-                    <StackPanel VerticalAlignment="Center"><TextBlock Text="FULL" FontSize="15" FontWeight="Bold" Foreground="$($colors.Green)"/><TextBlock Text="UNDO" FontSize="9" Foreground="$($colors.Subtext0)"/></StackPanel>
+                    <StackPanel VerticalAlignment="Center"><TextBlock Text="UNDO" FontSize="15" FontWeight="Bold" Foreground="$($colors.Green)"/><TextBlock Text="MANIFEST" FontSize="9" Foreground="$($colors.Subtext0)"/></StackPanel>
                 </Border>
                 <Border Background="$($colors.Surface0)" CornerRadius="8" Margin="4" Padding="10,9">
                     <StackPanel VerticalAlignment="Center"><TextBlock Text="LOCAL" FontSize="15" FontWeight="Bold" Foreground="$($colors.Green)"/><TextBlock Text="NO ACCOUNT" FontSize="9" Foreground="$($colors.Subtext0)"/></StackPanel>
@@ -300,7 +300,7 @@ $iconSource = Join-Path $scriptDir 'branding\logo.ico'
                             <ComboBoxItem Content="Standard" IsSelected="True"/>
                             <ComboBoxItem Content="Aggressive"/>
                         </ComboBox>
-                        <TextBlock Text="Standard blocks telemetry while keeping sign-in and downloads available."
+                        <TextBlock Text="Standard targets 60 domains. Connected Adobe features can be affected."
                                    TextWrapping="Wrap" FontSize="11" Foreground="$($colors.Subtext0)" Margin="0,7,0,9"/>
                         <CheckBox x:Name="DryRunCheck" Content="Preview changes only"/>
                         <CheckBox x:Name="VerboseCheck" Content="Show the reason for each action"/>
@@ -310,7 +310,7 @@ $iconSource = Join-Path $scriptDir 'branding\logo.ico'
                         <Grid Margin="0,8,0,0">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Button x:Name="StatusButton" Grid.Column="0" Content="Status check" MinHeight="34"/>
-                            <Button x:Name="UndoButton" Grid.Column="2" Content="Undo all" Style="{StaticResource DangerButton}" MinHeight="34"/>
+                            <Button x:Name="UndoButton" Grid.Column="2" Content="Undo changes" Style="{StaticResource DangerButton}" MinHeight="34"/>
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -398,7 +398,7 @@ $iconSource = Join-Path $scriptDir 'branding\logo.ico'
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <TextBlock x:Name="StatusText" Grid.Column="0" Text="Ready" Foreground="$($colors.Green)" FontSize="12" VerticalAlignment="Center"/>
                     <TextBlock x:Name="UpdateText" Grid.Column="1" Text="" Margin="0,0,14,0" Foreground="$($colors.Yellow)" FontSize="11" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="VersionText" Grid.Column="2" Text="v2.5.2" Foreground="$($colors.Subtext0)" FontSize="11" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="VersionText" Grid.Column="2" Text="v2.5.3" Foreground="$($colors.Subtext0)" FontSize="11" VerticalAlignment="Center"/>
                 </Grid>
             </StackPanel>
         </Border>
@@ -509,6 +509,7 @@ $script:ActiveChildPids = [System.Collections.ArrayList]::Synchronized([System.C
 function Invoke-ScriptAsync {
     param([string[]]$Arguments, [string]$StatusMsg, [string]$OutputFile)
 
+    if ($marketingCapture) { throw 'Protection commands are disabled in sample capture mode.' }
     if (-not (Test-Path $mainScript)) {
         Write-LogLine "  [!!] Disable-AdobeTelemetry.ps1 not found in $scriptDir"
         return
@@ -614,7 +615,7 @@ $statusButton.Add_Click({
 })
 
 $undoButton.Add_Click({
-    Invoke-ScriptAsync -Arguments @('-Undo') -StatusMsg 'Undoing all changes...'
+    Invoke-ScriptAsync -Arguments @('-Undo') -StatusMsg 'Undoing recorded changes...'
 })
 
 $connectionButton.Add_Click({
@@ -716,7 +717,7 @@ $plumbingStartButton.Add_Click({
                        -StatusMsg "Running plumbing test ($app, $minutes min)..."
 })
 
-Write-LogLine "  Disable Adobe Telemetry GUI v2.5.2"
+Write-LogLine "  Disable Adobe Telemetry GUI v2.5.3"
 Write-LogLine "  [OK] Ready to protect this PC."
 Write-LogLine "  [..] Standard covers 60 telemetry endpoints across 11 protection phases."
 Write-LogLine "  [..] Run Status check first, or enable Preview changes only before applying."
@@ -727,7 +728,7 @@ if (-not (Test-Path $mainScript)) {
 # Surface an "update available" label from the CLI's update-check cache (best-effort)
 try {
     $updCache = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\update-check.json'
-    if (Test-Path $updCache) {
+    if (-not $marketingCapture -and (Test-Path $updCache)) {
         $u = Get-Content $updCache -Raw | ConvertFrom-Json
         if ($u.LatestTag) {
             $latest = ($u.LatestTag -replace '^v', '')
@@ -763,20 +764,20 @@ function Set-MarketingCaptureState {
 
     switch ($View.ToLowerInvariant()) {
         'status' {
-            $statusText.Text = 'Status check complete'
-            Write-LogLine '  === Protection status'
+            $statusText.Text = 'Sample status. No system inspection.'
+            Write-LogLine '  === Sample protection status'
             Write-LogLine '  [OK] Hosts block: all 60 Standard endpoints are present'
             Write-LogLine '  [OK] Firewall: Adobe telemetry rules are active'
             Write-LogLine '  [OK] Registry: usage data policies are applied'
             Write-LogLine '  [OK] GrowthSDK blocker is in place'
             Write-LogLine '  [--] Weekly watchdog is not installed'
-            Write-LogLine '  [..] This check did not change the system'
+            Write-LogLine '  [..] Illustrative results. No system scan or changes.'
         }
         'dry-run' {
             $dryRunCheck.IsChecked = $true
             $verboseCheck.IsChecked = $true
-            $statusText.Text = 'Preview complete. No changes made.'
-            Write-LogLine '  === Standard profile preview'
+            $statusText.Text = 'Sample preview. No system changes.'
+            Write-LogLine '  === Sample Standard profile preview'
             Write-LogLine '  [..] Would stop Adobe background telemetry processes'
             Write-LogLine '  [..] Would neutralize GrowthSDK and persistent launch points'
             Write-LogLine '  [..] Would apply 60 firewall and hosts protections'
@@ -784,11 +785,12 @@ function Set-MarketingCaptureState {
             Write-LogLine '  [OK] Preview finished. No system changes were made.'
         }
         default {
-            $statusText.Text = 'Ready'
-            Write-LogLine '  Disable Adobe Telemetry GUI v2.5.2'
+            $statusText.Text = 'Ready (sample view)'
+            Write-LogLine '  Disable Adobe Telemetry GUI v2.5.3'
             Write-LogLine '  [OK] Ready to protect this PC.'
             Write-LogLine '  [..] Standard covers 60 telemetry endpoints across 11 protection phases.'
             Write-LogLine '  [..] Run Status check first, or enable Preview changes only before applying.'
+            Write-LogLine '  [..] Sample view. No system scan or changes.'
         }
     }
 }

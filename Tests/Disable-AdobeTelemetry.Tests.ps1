@@ -872,7 +872,16 @@ Describe 'GUI Script' {
         $reportPath = Join-Path $PSScriptRoot '..\assets\screenshots\capture-report.json'
         Test-Path -LiteralPath $reportPath | Should -BeTrue
         $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
-        $report.version | Should -Be '2.5.2'
+        $report.version | Should -Be '2.5.3'
+        $report.schemaVersion | Should -Be 2
+        $report.offscreen | Should -BeTrue
+        $report.representativeData | Should -BeTrue
+        $report.protectionCommands | Should -BeFalse
+        @($report.sourceFiles).Count | Should -Be 5
+        foreach ($source in $report.sourceFiles) {
+            $sourcePath = Join-Path (Join-Path $PSScriptRoot '..') $source.path
+            (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash.ToLowerInvariant() | Should -Be $source.sha256
+        }
         @($report.captures).Count | Should -Be 3
         @($report.captures.view) | Should -Be @('overview', 'status', 'dry-run')
         foreach ($capture in $report.captures) {
@@ -880,8 +889,27 @@ Describe 'GUI Script' {
             $capture.height | Should -Be 1000
             $capture.bytes | Should -BeGreaterThan 100000
             $capture.sha256 | Should -Match '^[a-f0-9]{64}$'
-            Test-Path -LiteralPath (Join-Path (Split-Path -Parent $reportPath) $capture.file) | Should -BeTrue
+            $capturePath = Join-Path (Split-Path -Parent $reportPath) $capture.file
+            Test-Path -LiteralPath $capturePath | Should -BeTrue
+            (Get-FileHash -LiteralPath $capturePath -Algorithm SHA256).Hash.ToLowerInvariant() | Should -Be $capture.sha256
         }
+    }
+
+    It 'rejects protection commands before starting a capture-mode process' {
+        $guiPath = Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1'
+        $guiAst = [System.Management.Automation.Language.Parser]::ParseFile($guiPath, [ref]$null, [ref]$null)
+        $definition = $guiAst.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-ScriptAsync' }, $true)
+        . ([scriptblock]::Create($definition.Extent.Text))
+        $marketingCapture = $true
+        { Invoke-ScriptAsync } | Should -Throw '*disabled in sample capture mode*'
+    }
+
+    It 'labels sample status and does not promise complete recovery' {
+        $guiContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.GUI.ps1') -Raw
+        $guiContent | Should -Match 'Sample status\. No system inspection\.'
+        $guiContent | Should -Match 'Sample Standard profile preview'
+        $guiContent | Should -Not -Match 'Text="FULL"'
+        $guiContent | Should -Match 'Content="Undo changes"'
     }
 
     It 'validates trace and plumbing minute inputs' {
@@ -1316,7 +1344,7 @@ Describe 'Audit Regression Tests' {
 
         # Behavioral: newer cached tag warns, same tag does not
         function Write-Status { param($Message, $Type) $script:__updMsgs += ,"$Type|$Message" }
-        $script:Version = '2.5.2'
+        $script:Version = '2.5.3'
         Invoke-Expression $body
         $cachePath = Join-Path (Join-Path $env:APPDATA 'Disable-AdobeTelemetry') 'update-check.json'
         try {
@@ -1326,7 +1354,7 @@ Describe 'Audit Regression Tests' {
             ($script:__updMsgs -join ' ') | Should -Match 'Update available: v9.9.9'
 
             $script:__updMsgs = @()
-            @{ LatestTag = 'v2.5.2'; CheckedUtc = [datetime]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content $cachePath -Encoding UTF8
+            @{ LatestTag = 'v2.5.3'; CheckedUtc = [datetime]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content $cachePath -Encoding UTF8
             Test-UpdateAvailable
             ($script:__updMsgs -join ' ') | Should -Not -Match 'Update available'
         } finally {
@@ -1395,6 +1423,16 @@ Describe 'Audit Regression Tests' {
         $text | Should -Match 'Adobe telemetry block: Present'
         $text | Should -Match 'DNS-over-HTTPS: Not detected'
         $text | Should -Match "Application source 'Disable-AdobeTelemetry': Registered"
+        $script:__cap.Clear()
+        $data.HostsFile.DohEnabled = $true
+        $data.HostsFile.DohSources = @('Windows auto-DoH')
+        function Write-Host { param([Parameter(ValueFromRemainingArguments=$true)]$args) [void]$script:__cap.Add(($args -join ' ')) }
+        Show-Status -Data $data
+        Remove-Item function:Write-Host -ErrorAction SilentlyContinue
+        $text = $script:__cap -join "`n"
+        $text | Should -Match 'DNS-over-HTTPS: Configuration detected'
+        $text | Should -Match 'Hosts-file coverage is not tested here'
+        $text | Should -Not -Match 'bypassed|disable DoH|hosts blocking effective'
     }
 
     It 'AllUsers policy application enumerates profiles and unloads mounted hives safely' {
@@ -1454,10 +1492,11 @@ Describe 'Audit Regression Tests' {
         $scriptContent | Should -Match '--- Neutralization ---'
     }
 
-    It 'status data reports DoH bypass state' {
+    It 'status data reports DoH configuration without declaring hosts-file bypass' {
         $scriptContent = Get-Content (Join-Path $PSScriptRoot '..\Disable-AdobeTelemetry.ps1') -Raw
         $scriptContent | Should -Match '\$statusData\.HostsFile\.DohEnabled'
-        $scriptContent | Should -Match 'DNS-over-HTTPS is enabled'
+        $scriptContent | Should -Match 'DNS-over-HTTPS configuration detected'
+        $scriptContent | Should -Not -Match 'Hosts-file blocking is bypassed by DoH|disable DoH for full coverage|All recorded telemetry blocks have been reversed'
     }
 
     It 'all web requests use -UseBasicParsing (CVE-2025-54100 guard)' {

@@ -15,18 +15,21 @@
       6. Blocks Adobe telemetry domains via Windows Firewall
       7. Blocks domains via hosts file
       8. Disables Adobe Acrobat telemetry via registry
-      9. Permanently neutralizes CCXProcess.exe
+      9. Neutralizes CCXProcess.exe through rename, IFEO, and ACL controls
      10. Firewalls AdobeIPCBroker.exe (outbound only)
      11. Disables Adobe startup/run entries
 
 .PARAMETER Undo
-    Reverses ALL changes made by this script.
+    Attempts to undo supported recorded changes. Deleted GrowthSDK and cache
+    contents are not backed up. Missing or older manifests use broader cleanup.
 
 .PARAMETER StatusOnly
-    Shows current state of all telemetry components without making changes.
+    Reports protection state without applying controls. Text-mode logs and the
+    GitHub update cache may still be written.
 
 .PARAMETER DryRun
-    Reports all planned actions without writing any changes.
+    Reports planned actions without applying protections. Logs and the GitHub
+    update cache may still be written.
 
 .PARAMETER Only
     Comma-separated list of phases to run. Valid phases:
@@ -37,12 +40,12 @@
 
 .PARAMETER Profile
     Blocking intensity: Minimal (telemetry domains + process kill only),
-    Standard (default - full protection), Aggressive (adds font/library domains).
+    Standard (default, broader controls), Aggressive (adds font/library domains).
     User -Only/-Skip flags override profile defaults.
 
 .PARAMETER Launcher
-    Non-destructive mode: kills telemetry processes, launches the specified Adobe
-    app, waits for it to exit, then re-kills telemetry. No permanent system changes.
+    Stops selected background processes, launches the specified Adobe app, waits
+    for it to exit, then stops those processes again. Save your work first.
     Accepts app names: Photoshop, Illustrator, Premiere, AfterEffects, InDesign, etc.
 
 .PARAMETER ShowRationale
@@ -59,7 +62,7 @@
     hosts file so Adobe WAM (which runs as SYSTEM) cannot re-inject its detection entry.
     Opt-in: the weekly watchdog task runs as SYSTEM, so locking the hosts file prevents
     the watchdog from reasserting hosts entries (firewall/IFEO reassertion is unaffected).
-    Fully reversed by -Undo.
+    Undo removes the SYSTEM deny-write entry.
 
 .PARAMETER AllUsers
     Apply the per-user (HKCU-equivalent) telemetry policies to every user profile on the
@@ -70,8 +73,8 @@
 
 .NOTES
     Author  : SysAdminDoc
-    Version : 2.5.2
-    Date    : 2026-09-07
+    Version : 2.5.3
+    Date    : 2026-09-08
 
     Exit codes:
       0    = Success (no reboot needed) or dry run completed
@@ -146,7 +149,7 @@ if (-not $isAdmin) {
 
 $ErrorActionPreference = 'Continue'
 
-$script:DisplayVersion = 'v2.5.2'
+$script:DisplayVersion = 'v2.5.3'
 $script:Version = $script:DisplayVersion.TrimStart('v')
 $script:LogFile = Join-Path $env:TEMP 'Disable-AdobeTelemetry.log'
 $script:LogDir = Join-Path $env:APPDATA 'Disable-AdobeTelemetry\logs'
@@ -1435,9 +1438,8 @@ function Block-AdobeFirewall {
         Write-Status 'No known Adobe telemetry executables found on disk' -Type Warning
     }
 
-    # Aggressive: block outbound DNS-over-TLS (port 853). DoT bypasses hosts/route
-    # sinkholing the same way DoH does; blocking it forces resolution back through the
-    # system resolver that our hosts/route layers can sinkhole.
+    # Aggressive blocks outbound DNS-over-TLS (port 853). A blocked resolver may
+    # fail rather than fall back; this rule does not prove hosts-file coverage.
     if ($Profile -eq 'Aggressive') {
         if ($DryRun) {
             Write-Status 'Would block outbound DNS-over-TLS (port 853, TCP+UDP)' -Type DryRun
@@ -1500,8 +1502,8 @@ function Block-AdobeFirewall {
 }
 
 function Test-DohEnabled {
-    # DNS-over-HTTPS bypasses hosts-file sinkholing entirely. Detect system- and
-    # browser-level DoH so the user can be warned their hosts layer is ineffective.
+    # Report selected system and browser DoH settings. These are configuration
+    # signals, not proof that a resolver bypasses the system hosts file.
     # Detection only - this never modifies DoH configuration.
     $sources = @()
 
@@ -1523,7 +1525,7 @@ function Test-DohEnabled {
         if ($dohIface) { $sources += 'per-interface DoH enforced' }
     }
 
-    # Browser-enforced DoH policies - each bypasses the hosts file for that browser
+    # Browser DoH policies; hosts-file handling depends on the resolver.
     $browserDoh = @{
         'Microsoft Edge' = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
         'Google Chrome'  = 'HKLM:\SOFTWARE\Policies\Google\Chrome'
@@ -1637,10 +1639,10 @@ function Block-AdobeHostsFile {
     & ipconfig /flushdns 2>&1 | Out-Null
     Write-Status 'DNS cache flushed' -Type Info
 
-    # Warn if DoH is active - it bypasses hosts-file blocking entirely
+    # Report DoH configuration without treating encryption as a protection failure.
     $doh = Test-DohEnabled
     if ($doh.Enabled) {
-        Write-Status "DNS-over-HTTPS is enabled ($($doh.Sources -join '; ')). Hosts-file blocking is bypassed by DoH - rely on the firewall/route layers or disable DoH for full coverage." -Type Warning
+        Write-Status "DNS-over-HTTPS configuration detected ($($doh.Sources -join '; ')). This does not prove hosts-file bypass. Windows DoH supports the hosts file; verify application traffic before changing DNS settings." -Type Info
     }
 
     # Optional: deny SYSTEM write on the hosts file so Adobe WAM (running as SYSTEM)
@@ -1694,7 +1696,7 @@ function Get-HostsDomainMappings {
 }
 
 function Disable-CCXProcess {
-    Write-Status 'Permanently neutralizing CCXProcess' -Type Header
+    Write-Status 'Neutralizing CCXProcess' -Type Header
     Write-Rationale 'CCXProcess.exe is the Creative Cloud Experience host that serves in-app marketing and notifications. It persists after closing all Adobe apps and relaunches via scheduled tasks. The triple-layer approach (rename + IFEO + ACL) ensures it cannot be restored silently by Adobe updaters.'
 
     $ccxPaths = @(
@@ -2379,7 +2381,7 @@ function Invoke-ManifestUndo {
 }
 
 function Invoke-Undo {
-    Write-Status 'UNDO - Reversing all telemetry blocks' -Type Header
+    Write-Status 'Undo: legacy cleanup' -Type Header
 
     # 1. Re-enable disabled services
     Write-Status 'Re-enabling Adobe services' -Type Header
@@ -2658,7 +2660,7 @@ function Invoke-Undo {
     Remove-Watchdog
 
     Write-Status 'Undo Complete' -Type Header
-    Write-Host '  All Adobe telemetry blocks have been reversed.' -ForegroundColor Green
+    Write-Host '  Legacy cleanup finished. Review the log for restore failures; deleted contents are not recovered.' -ForegroundColor Yellow
     Write-Host '  A reboot is recommended to ensure all changes take effect.' -ForegroundColor Yellow
     Write-Host ''
 }
@@ -3079,10 +3081,9 @@ function Show-Status {
     Write-Host ''
     Write-Host '  --- Hosts File ---' -ForegroundColor Cyan
     Write-CheckLine -Label 'Adobe telemetry block' -Ok $data.HostsFile.BlockPresent -OkText 'Present' -BadText 'Not present'
-    # DoH "ok" state is the ABSENCE of DoH (hosts blocking effective)
-    Write-CheckLine -Label 'DNS-over-HTTPS' -Ok (-not $data.HostsFile.DohEnabled) `
-        -OkText 'Not detected (hosts blocking effective)' `
-        -BadText "ENABLED - hosts blocking bypassed ($($data.HostsFile.DohSources -join '; '))"
+    # Configuration is informational, not a pass/fail test of hosts-file coverage.
+    $dohText = if ($data.HostsFile.DohEnabled) { "Configuration detected ($($data.HostsFile.DohSources -join '; '))" } else { 'Not detected in checked settings' }
+    Write-Host "    DNS-over-HTTPS: $dohText. Hosts-file coverage is not tested here." -ForegroundColor Cyan
 
     Write-Host ''
     Write-Host '  --- IFEO Redirects ---' -ForegroundColor Cyan
@@ -3746,7 +3747,7 @@ if ($Undo) {
         # Remove watchdog regardless of manifest path
         Remove-Watchdog
         Write-Status 'Manifest-driven undo complete' -Type Header
-        Write-Host '  All recorded telemetry blocks have been reversed.' -ForegroundColor Green
+        Write-Host '  Recorded undo actions finished. Review the log for restore failures; deleted contents are not recovered.' -ForegroundColor Yellow
         Write-Host '  A reboot is recommended to ensure all changes take effect.' -ForegroundColor Yellow
         Write-Host ''
     }
@@ -3754,7 +3755,7 @@ if ($Undo) {
     if (Test-Path $script:ManifestPath) {
         Remove-Item -Path $script:ManifestPath -Force -ErrorAction SilentlyContinue
     }
-    Write-SummaryEvent -Result Undo -Message "Undo completed via $(if ($manifestHandled) { 'manifest' } else { 'legacy' }) path. All recorded telemetry blocks reversed."
+    Write-SummaryEvent -Result Undo -Message "Undo finished via $(if ($manifestHandled) { 'manifest' } else { 'legacy' }) path. Review per-action results; deleted contents are not recovered."
     exit 0
 }
 

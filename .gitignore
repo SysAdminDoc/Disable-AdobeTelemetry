@@ -8,6 +8,7 @@ CLAUDE.md
 *.zip
 SHA256SUMS.txt
 dist/
+build/
 
 # Markdown files local-only (except README)
 *.md

@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param()
+param(
+    [switch]$MarketingOnly,
+    [string]$OutputDirectory
+)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -20,6 +23,7 @@ New-Item -ItemType Directory -Force -Path $iconDirectory, (Join-Path $repoRoot '
 $logo = Join-Path $repoRoot 'branding\logo.png'
 $smallLogo = Join-Path $repoRoot 'branding\logo-small.png'
 
+if (-not $MarketingOnly) {
 & $magick $fullMaster `
     -trim +repage `
     -resize '900x900' `
@@ -56,9 +60,12 @@ $icoInputs = 16, 24, 32, 48, 64, 96, 128, 256 | ForEach-Object {
 }
 & $magick @icoInputs (Join-Path $repoRoot 'branding\logo.ico')
 if ($LASTEXITCODE -ne 0) { throw 'Failed to build branding\logo.ico.' }
+}
 
-$bannerMark = Join-Path $iconDirectory '.banner-mark.png'
-$socialMark = Join-Path $iconDirectory '.social-mark.png'
+if ($OutputDirectory) { $brandDirectory = [System.IO.Path]::GetFullPath($OutputDirectory) }
+New-Item -ItemType Directory -Force -Path $brandDirectory | Out-Null
+$bannerMark = Join-Path $brandDirectory '.banner-mark.png'
+$socialMark = Join-Path $brandDirectory '.social-mark.png'
 & $magick $logo -resize '355x355' -strip $bannerMark
 & $magick $logo -resize '430x430' -strip $socialMark
 
@@ -73,7 +80,7 @@ $banner = Join-Path $brandDirectory 'disable-adobe-telemetry-readme-banner.png'
     -annotate '+452+248' 'Keep the tools. Cut the tracking.' `
     -fill '#20D7F2' -draw 'roundrectangle 452,323 930,330 3,3' `
     -font 'Inter-Medium' -fill '#7E91B3' -pointsize 20 `
-    -annotate '+452+370' '60 DOMAINS   11 PHASES   FULL UNDO   LOCAL CONTROL' `
+    -annotate '+452+370' '60 DOMAINS   11 PHASES   MANIFEST UNDO   LOCAL CONTROL' `
     -strip `
     $banner
 if ($LASTEXITCODE -ne 0) { throw 'Failed to build the README banner.' }
@@ -89,7 +96,7 @@ $social = Join-Path $brandDirectory 'disable-adobe-telemetry-social-preview.png'
     -annotate '+462+325' 'Keep the tools. Cut the tracking.' `
     -fill '#20D7F2' -draw 'roundrectangle 462,385 900,392 3,3' `
     -font 'Inter-Medium' -fill '#7E91B3' -pointsize 18 `
-    -annotate '+462+432' 'WINDOWS   REVERSIBLE   LOCAL-FIRST   OPEN SOURCE' `
+    -annotate '+462+432' 'WINDOWS   MANIFEST UNDO   LOCAL CONTROL   OPEN SOURCE' `
     -strip `
     $social
 if ($LASTEXITCODE -ne 0) { throw 'Failed to build the social preview.' }

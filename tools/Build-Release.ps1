@@ -1,6 +1,7 @@
+#requires -Version 7
 [CmdletBinding()]
 param(
-    [string]$Version = '2.5.2'
+    [string]$Version = '2.5.3'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,6 +30,7 @@ if ($readmeContent -notmatch [regex]::Escape("version-$Version-")) {
 & pwsh -NoLogo -NoProfile -File (Join-Path $repoRoot 'Build.ps1') -Verify
 if ($LASTEXITCODE -ne 0) { throw 'Inventory verification failed.' }
 
+& (Join-Path $PSScriptRoot 'Test-Marketing.ps1') -Version $Version
 Import-Module Pester -MinimumVersion 5.0 -ErrorAction Stop
 $pester = Invoke-Pester -Path (Join-Path $repoRoot 'Tests') -Output Normal -PassThru
 if ($pester.FailedCount -gt 0) {
@@ -42,6 +44,8 @@ $analysisPaths = @(
     (Join-Path $repoRoot 'Build.ps1'),
     (Join-Path $repoRoot 'tools\build-brand-assets.ps1'),
     (Join-Path $repoRoot 'tools\Capture-MarketingScreenshots.ps1'),
+    (Join-Path $repoRoot 'tools\Verify-Marketing.ps1'),
+    (Join-Path $repoRoot 'tools\Test-Marketing.ps1'),
     $PSCommandPath
 )
 $analysis = foreach ($analysisPath in $analysisPaths) {
@@ -116,6 +120,7 @@ $packageManifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path
 $zipName = "Disable-AdobeTelemetry-v$Version.zip"
 $zipPath = Join-Path $distRoot $zipName
 Compress-Archive -LiteralPath $stageRoot -DestinationPath $zipPath -CompressionLevel Optimal
+& (Join-Path $PSScriptRoot 'Verify-Marketing.ps1') -Version $Version -Archive $zipPath
 $zip = Get-Item -LiteralPath $zipPath
 $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
 "$zipHash  $zipName" | Set-Content -LiteralPath (Join-Path $distRoot 'SHA256SUMS.txt') -Encoding ascii
@@ -133,3 +138,5 @@ $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerIn
 
 Write-Host "Built $zipPath"
 Write-Host "SHA256 $zipHash"
+if (-not [IO.Path]::GetFullPath($stageRoot).StartsWith($distRoot + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Unexpected release staging cleanup path.' }
+Remove-Item -LiteralPath $stageRoot -Recurse -Force

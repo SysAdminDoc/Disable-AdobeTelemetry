@@ -1,31 +1,62 @@
 {
+  "schemaVersion": 2,
   "product": "Disable Adobe Telemetry",
-  "version": "2.5.2",
+  "version": "2.5.3",
   "renderer": "WPF RenderTargetBitmap at 125 percent DPI",
+  "offscreen": true,
+  "representativeData": true,
+  "protectionCommands": false,
+  "sourceFiles": [
+    {
+      "path": "Disable-AdobeTelemetry.GUI.ps1",
+      "bytes": 42883,
+      "sha256": "8cb0563bebe172361ba71cf7fb9e911c2816b97ffb1cb96d5490693b16a1d49b"
+    },
+    {
+      "path": "Disable-AdobeTelemetry.ps1",
+      "bytes": 176830,
+      "sha256": "ef2419ffede15faa6672840fcfbde72d33a6c6a0fcdddaf742f3ef723a37fffc"
+    },
+    {
+      "path": "branding/logo.png",
+      "bytes": 395354,
+      "sha256": "aacb99726727d81ba87579d665bb8c2e507889ab09f3030189b2da34b51cc990"
+    },
+    {
+      "path": "branding/logo-small.png",
+      "bytes": 423244,
+      "sha256": "e2cd015e0fc8305e353147ea7d73bd6080261fc09f239405ae6d1577b5fe2bff"
+    },
+    {
+      "path": "branding/logo.ico",
+      "bytes": 410598,
+      "sha256": "1fa129b4b5ae0502aa57deb4f88c85f62e12509472f6b0110a52556aa5ecadab"
+    }
+  ],
   "captures": [
     {
       "view": "overview",
       "file": "01-control-center.png",
       "width": 1600,
       "height": 1000,
-      "bytes": 134012,
-      "sha256": "6bed50ff230f709f9ca3fd038371c0551aa493add09845e6149a25ed9d5c6b0d"
+      "bytes": 140485,
+      "sha256": "934ad5dea4669c6f03b48cc533d2b2ccda12f74708b34cf6cba35ba7c343cead"
     },
     {
       "view": "status",
       "file": "02-status-check.png",
       "width": 1600,
       "height": 1000,
-      "bytes": 144910,
-      "sha256": "1842cbc49d391e371f136dedf91f4eac5cd41efded8ab62da1eac9ca92da4de0"
+      "bytes": 149005,
+      "sha256": "d306f1e902124c06af4da35a6592d93db24d28c3abe093b8706181902d937446"
     },
     {
       "view": "dry-run",
       "file": "03-dry-run-preview.png",
       "width": 1600,
       "height": 1000,
-      "bytes": 147581,
-      "sha256": "3e335780e819b516b4cb37d9a6154b12bf4e4d5e03f2e1998b0a2d5b28be6e69"
+      "bytes": 148969,
+      "sha256": "c315f42641b1a0eaab822679e728cc32202f5712e9a843a99d8300213070fd75"
     }
   ]
 }

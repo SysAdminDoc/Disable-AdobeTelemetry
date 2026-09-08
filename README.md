@@ -4,30 +4,31 @@
 
 <h1 align="center">Disable Adobe Telemetry</h1>
 
-<p align="center"><strong>Reversible Windows privacy controls for Adobe background telemetry and GrowthSDK.</strong></p>
+<p align="center"><strong>Preview Adobe telemetry controls on Windows, then apply the changes you choose.</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.5.2-20d7f2?style=flat-square" alt="Version 2.5.2">
+  <img src="https://img.shields.io/badge/version-2.5.3-20d7f2?style=flat-square" alt="Version 2.5.3">
   <img src="https://img.shields.io/badge/license-MIT-55d6a7?style=flat-square" alt="MIT License">
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-9db8ff?style=flat-square" alt="Windows 10 and 11">
   <img src="https://img.shields.io/badge/PowerShell-5.1%2B-ff9e64?style=flat-square" alt="PowerShell 5.1 or newer">
 </p>
 
 <p align="center">
-  <a href="https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/download/v2.5.2/Disable-AdobeTelemetry-v2.5.2.zip"><strong>Download v2.5.2</strong></a>
+  <a href="https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/download/v2.5.3/Disable-AdobeTelemetry-v2.5.3.zip"><strong>Download v2.5.3</strong></a>
   &nbsp;&bull;&nbsp;
   <a href="#start-safely">Start safely</a>
   &nbsp;&bull;&nbsp;
-  <a href="#undo-everything">Undo everything</a>
+  <a href="#undo-and-recovery-limits">Undo and recovery limits</a>
 </p>
 
 Adobe applications can leave analytics frameworks, scheduled tasks, services,
 and background processes running after the creative app closes. This project
-gives you one place to preview those controls, apply the level you want, check
-the result, and reverse every recorded change.
+gives you one place to preview the controls and choose what to apply. A saved
+manifest records supported changes for undo; it isn't a full system backup.
 
-It doesn't require an account. The Standard profile protects 60 endpoints
-across 11 phases while preserving Adobe sign-in and download hosts.
+It doesn't require an account. Standard ships with 60 domain rules across
+11 phases. Some connected Adobe features and background updates can be affected,
+so review the tradeoffs before using it on a working machine.
 
 ## See the control center
 
@@ -36,7 +37,7 @@ across 11 phases while preserving Adobe sign-in and download hosts.
 <table>
   <tr>
     <td width="50%"><img src="assets/screenshots/02-status-check.png" alt="Representative protection status in Disable Adobe Telemetry"></td>
-    <td width="50%"><img src="assets/screenshots/03-dry-run-preview.png" alt="No-write Standard profile preview in Disable Adobe Telemetry"></td>
+    <td width="50%"><img src="assets/screenshots/03-dry-run-preview.png" alt="Sample Standard profile preview in Disable Adobe Telemetry"></td>
   </tr>
   <tr>
     <td align="center"><strong>Check each protection layer</strong></td>
@@ -44,23 +45,25 @@ across 11 phases while preserving Adobe sign-in and download hosts.
   </tr>
 </table>
 
-These screenshots come from deterministic, no-write presentation states in the
-real WPF interface. Capturing them does not inspect or modify the machine.
+These screenshots show sample states in the real WPF interface, not a scan of a
+protected computer. The offscreen capture path blocks protection commands and
+doesn't read the normal update cache. The [capture record](assets/screenshots/capture-report.json)
+identifies the exact scripts, branding files, and PNGs by SHA-256.
 
 ## Why people use it
 
 | What matters | How the project handles it |
 |---|---|
-| Start cautiously | Status Check inspects first. Preview changes only shows the plan without writing anything. |
+| Start cautiously | Status Check inspects first. Preview shows planned actions without applying protections. |
 | Pick the right pressure | Minimal, Standard, and Aggressive profiles make the tradeoff explicit. |
 | Keep control | Run all 11 phases or choose individual process, service, registry, firewall, hosts, and startup phases. |
-| Recover cleanly | The tool records its actions in a manifest. Undo uses that record instead of guessing. |
+| Review recovery | Undo uses the saved manifest for supported changes. Deleted cache contents aren't backed up. |
 | Verify the result | Console, GUI, JSON status, JSONL logs, and Windows event records support personal and fleet use. |
-| Stay local | There is no account, cloud dashboard, or bundled telemetry. Update checks use a small local cache. |
+| Stay local | No account or cloud dashboard is required. Update checks contact GitHub and keep a local cache. |
 
 ## Start safely
 
-1. Download and extract [`Disable-AdobeTelemetry-v2.5.2.zip`](https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/download/v2.5.2/Disable-AdobeTelemetry-v2.5.2.zip).
+1. Download and extract [`Disable-AdobeTelemetry-v2.5.3.zip`](https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/download/v2.5.3/Disable-AdobeTelemetry-v2.5.3.zip).
 2. Open `Disable-AdobeTelemetry.GUI.ps1`. Windows will request administrator access.
 3. Run **Status check** to see the current state.
 4. Enable **Preview changes only**, then run **Apply protections** to review the plan.
@@ -68,6 +71,9 @@ real WPF interface. Capturing them does not inspect or modify the machine.
 
 The default Standard profile is the sensible starting point. Close Adobe apps
 before applying so files and services aren't held open.
+
+Preview skips protection changes, but the CLI can still write logs and refresh
+its GitHub update cache. It isn't a sandbox or a substitute for a backup.
 
 ## Choose a profile
 
@@ -101,20 +107,24 @@ IPC behavior. Only its outbound traffic is blocked.
 - Aggressive can break connected Adobe features. Start with Standard unless you already know those features are disposable.
 - The release includes SHA256 checksums but isn't Authenticode-signed because this project does not yet have a code-signing certificate.
 
-## Undo everything
+## Undo and recovery limits
 
-Use **Undo all** in the GUI or run:
+Use **Undo changes** in the GUI or run:
 
 ```powershell
 .\Disable-AdobeTelemetry.ps1 -Undo
 ```
 
-Undo reads the recorded manifest, restores renamed files and permissions, then
-removes the policies and network blocks created by the tool.
+Undo replays supported actions from `%APPDATA%\Disable-AdobeTelemetry\undo-manifest.json`.
+It can restore recorded settings and renamed files, and remove blocker files.
+It cannot recover deleted GrowthSDK or cache contents, reopen stopped processes,
+or recover unsaved work. Save your work and keep an independent backup first.
+If the manifest is missing, unreadable, or from an older schema, the script falls
+back to broader legacy cleanup. Review the log for anything it couldn't restore.
 
 ## Blocked Domains
 
-Domains are tiered by profile. **Minimal** covers 22 pure-telemetry domains. **Standard** is the default with 60 domains, including messaging, crash reporting, Firefly/GenAI, Sensei, and genuine-license checks. **Aggressive** expands to 75 domains, including Fonts/Typekit, CC extensions, home, search, and RUM. Aggressive also blocks the primary apps' outbound traffic (`Acrobat.exe`/`AcroRd32.exe`), recursively firewalls every `.exe` under the Adobe install paths, and blocks DNS-over-TLS on port 853. The canonical lists live in [`Data/Inventories.psd1`](Data/Inventories.psd1). Activation and download endpoints (`ims-na1.adobelogin.com`, `auth.services.adobe.com`, `ccmdls.adobe.com`, `ardownload2.adobe.com`, `fonts.adobe.com`, etc.) are safelisted and never blocked, so licensing and sign-in keep working.
+Domains are tiered by profile. **Minimal** covers 22 pure-telemetry domains. **Standard** is the default with 60 domains, including messaging, crash reporting, Firefly/GenAI, Sensei, and genuine-license checks. **Aggressive** expands to 75 domains, including Fonts/Typekit, CC extensions, home, search, and RUM. Aggressive also blocks the primary apps' outbound traffic (`Acrobat.exe`/`AcroRd32.exe`), recursively firewalls every `.exe` under the Adobe install paths, and blocks DNS-over-TLS on port 853. The canonical lists live in [`Data/Inventories.psd1`](Data/Inventories.psd1). The list safelists selected sign-in and download domains, but that doesn't guarantee compatibility with every app, license type, shared IP address, or future Adobe update. Compare the controls with [Adobe's required network endpoints](https://helpx.adobe.com/business/enterprise/manage-services/configure-services/network-endpoints.html) and test the workflows you rely on.
 
 The Standard profile blocks outbound connections to:
 
@@ -163,21 +173,23 @@ As a result, some security products may flag the script's registry writes:
 - **Malwarebytes** may report `RiskWare.IFEOHijack`.
 - **EDR/SIEM** (Elastic, Splunk, Defender for Endpoint) may raise a registry-modification alert on the IFEO path.
 
-These are expected false positives for this defensive use. In managed environments, whitelist the script before running:
+Treat an alert as something to investigate, not automatically as a false positive.
+Compare the script's hash and exact registry targets before deciding how to respond.
+In a managed environment, have your security team review it. Don't disable
+protection or add a broad exclusion just to run the tool.
 
-- Add a path/hash exclusion for `Disable-AdobeTelemetry.ps1` in your AV/EDR console.
 - The redirects target only the three Adobe executables above; the debugger value always resolves to `%SystemRoot%\System32\AdobeTelemetryBlock.invalid`, so the entries are easy to identify and audit.
 - `-Undo` removes all IFEO entries the script created.
 
-If you prefer to avoid IFEO entirely, the executables are also renamed to `.disabled` and ACL-denied (see the triple-layer approach above); run with `-Skip CCXProcess` to omit the IFEO layer, accepting that an Adobe update which restores the original executable will not be caught automatically.
+To omit the CCXProcess neutralization phase, use `-Skip CCXProcess`. This also skips that phase's renaming and ACL changes, not just the IFEO entry.
 
 ## Install
 
-Download the latest release ZIP from [GitHub Releases](https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/latest), extract, and run. Each release includes the CLI script, GUI companion, README, and LICENSE.
+Download the latest release ZIP from [GitHub Releases](https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/latest), extract, and run. The ZIP includes the CLI, GUI, illustrated guide, license, and complete [original artwork archive](assets/brand/concepts/README.md).
 
 ```powershell
 # Verify the download checksum
-(Get-FileHash Disable-AdobeTelemetry-v2.5.2.zip -Algorithm SHA256).Hash
+(Get-FileHash Disable-AdobeTelemetry-v2.5.3.zip -Algorithm SHA256).Hash
 # Compare against the hash in SHA256SUMS.txt from the same release
 ```
 
@@ -202,7 +214,7 @@ cd Disable-AdobeTelemetry
 .\Disable-AdobeTelemetry.GUI.ps1
 ```
 
-A dark WPF control center with the same operations as the CLI. It includes profile selection, a no-write preview, live output, watchdog controls, profile import and export, JSON status, WFP trace configuration, and application plumbing tests. It requests administrator access through UAC when needed.
+A dark WPF control center with the same operations as the CLI. It includes profile selection, preview mode, live output, watchdog controls, profile import and export, JSON status, WFP trace configuration, and application plumbing tests. It requests administrator access through UAC when needed.
 
 ### CLI
 
@@ -210,7 +222,7 @@ A dark WPF control center with the same operations as the CLI. It includes profi
 # Run from any PowerShell prompt (requests administrator access through UAC)
 .\Disable-AdobeTelemetry.ps1
 
-# Preview what would change without writing anything
+# Preview protections without applying them (logs and update cache may be written)
 .\Disable-AdobeTelemetry.ps1 -DryRun
 
 # Run only specific phases (Kill, GrowthSDK, CCXProcess, IPCBroker, Tasks, Services, Registry, Firewall, Hosts, Acrobat, Startup)
@@ -236,7 +248,7 @@ A dark WPF control center with the same operations as the CLI. It includes profi
 # Maximum blocking: includes font domains and cloud library endpoints
 .\Disable-AdobeTelemetry.ps1 -Profile Aggressive
 
-# Clean launch: kill telemetry, run Photoshop, re-kill on exit (no permanent changes)
+# Save work first: stop helpers, run Photoshop, stop helpers again on exit
 .\Disable-AdobeTelemetry.ps1 -Launcher Photoshop
 
 # Export or import a validated fleet profile
@@ -249,7 +261,7 @@ A dark WPF control center with the same operations as the CLI. It includes profi
 # Install weekly watchdog (Mondays 9 AM) to reassert blocks after Adobe updates
 .\Disable-AdobeTelemetry.ps1 -InstallWatchdog
 
-# Reverse all changes
+# Undo supported recorded changes
 .\Disable-AdobeTelemetry.ps1 -Undo
 ```
 
@@ -259,7 +271,7 @@ Imported profiles fail closed before any protection phase runs. A profile must c
 
 After apply, the script verifies that the hosts block remains present, Adobe WAM hosts markers are absent, `detect-ccd.creativecloud.adobe.com` resolves to a sinkhole entry, firewall block rules exist, Dynamic Keyword rules exist when supported, and no Adobe-owned outbound connections remain. Verification failures are written to console output, JSONL logs, and `-StatusOnly -OutputFormat JSON`.
 
-Upstream domain merges are audited in the JSONL log with source URL, fetch timestamp, added domains, safelisted domains, rejected malformed entries, and final domain count. Successful live fetches update a last-good cache under `%APPDATA%\Disable-AdobeTelemetry`; failed fetches use that cache when available. `-DryRun` merges upstream domains in memory so all subsequent phase counts are accurate, but does not persist the cache or make any system changes.
+Upstream domain merges are recorded in the JSONL log with source and validation details. Successful live fetches update a last-good domain cache under `%APPDATA%\Disable-AdobeTelemetry`; failed fetches use that cache when available. `-DryRun` merges domains in memory without saving that domain cache or applying protections. Text logs and the separate release-update cache can still be written.
 
 ### Machine-Readable Output
 
@@ -299,11 +311,11 @@ For the cleanest run, close all Adobe applications before executing. If a rename
 
 ### Update Notifications
 
-On each run the script performs a **non-blocking** check for a newer GitHub release. It reports from a local cache (refreshed at most once every 24 hours in a background job), so it never delays the run or blocks on the network. If a newer version is available, a warning with the releases URL is printed. The check is skipped in JSON status mode and never downloads anything automatically.
+The script checks for newer GitHub releases using a local cache and a background refresh, at most once every 24 hours. If a newer version is available, it prints the release link. JSON status mode skips this check. The script fetches release metadata but doesn't download or install a new version.
 
 ### DNS-over-HTTPS (DoH)
 
-Hosts-file sinkholing works at the OS resolver level, but **DNS-over-HTTPS bypasses it entirely**. A browser or the OS resolving names over an encrypted HTTPS channel never consults the hosts file. The script detects system auto-DoH, per-interface enforced DoH, and Edge/Chrome/Firefox DoH policies, then warns when any are active. `-StatusOnly` reports DoH state under **Hosts File**. When DoH is enabled, rely on the firewall and persistent-route layers, which block by IP regardless of how the name was resolved, or disable DoH for full hosts-level coverage.
+Encrypted DNS does not automatically bypass the hosts file. Windows 11 integrates its DNS-over-HTTPS support with the system hosts file, as documented in [Microsoft's Windows security guide, page 26](https://www.microsoft.com/content/dam/microsoft/final/en-us/microsoft-brand/documents/MSFT-Windows-11-Security-Book-05-May-2023.pdf#page=26). An application using its own resolver can behave differently. The script reports selected Windows and browser DoH settings; that report is not a test of hosts-file effectiveness. Check the application's actual traffic and the firewall results. Don't disable encrypted DNS just because it appears in the status report.
 
 ## Expected Adobe behavior
 
@@ -321,12 +333,12 @@ blocking.
 ## Isolate an Adobe app problem
 
 1. Run **Status check** and save the JSON result if you need an audit trail.
-2. Use **Undo all**, restart Windows, and reproduce the Adobe issue without these controls.
+2. Use **Undo changes**, review any restore warnings, restart Windows, and test again. Deleted files may need repair or reinstallation through Adobe.
 3. If the issue disappears, apply Minimal first. Add phases or move to Standard one step at a time.
 4. Use `-Only` or `-Skip` to identify the exact process, service, registry, firewall, hosts, or startup phase involved.
 
-This sequence separates an Adobe defect from a protection-side effect without
-leaving the machine in an unknown state.
+This helps narrow down whether the controls contributed to the issue. It isn't
+proof that every prior setting or deleted file was restored.
 
 ## After Adobe Updates
 
@@ -338,7 +350,7 @@ CC application updates may restore disabled executables. The IFEO debugger redir
 .\Disable-AdobeTelemetry.ps1 -Undo
 ```
 
-The `-Undo` switch automatically reverses all changes: re-enables services and scheduled tasks, removes firewall rules, removes the hosts file block, removes any hosts-file SYSTEM deny-write lock, removes IFEO debugger redirects, restores renamed executables (including disabled startup shortcuts), removes GrowthSDK blocker files, removes registry policy overrides, and re-enables startup entries.
+`-Undo` attempts to restore supported manifest actions and remove the tool's blockers. Read the [recovery limits](#undo-and-recovery-limits) before relying on it.
 
 ## Development
 
@@ -355,14 +367,18 @@ Tests:
 Invoke-Pester -Path .\Tests -Output Detailed
 ```
 
-Rebuild the visual assets, recapture the no-write interface states, and produce
-the checked release ZIP with:
+Maintainer tools use PowerShell 7; the application entry points remain compatible
+with Windows PowerShell 5.1. Capture the current scripts into a review folder:
 
 ```powershell
-.\tools\build-brand-assets.ps1
-.\tools\Capture-MarketingScreenshots.ps1
-.\tools\Build-Release.ps1
+pwsh .\tools\Capture-MarketingScreenshots.ps1 -OutputDirectory .\build\marketing-candidate
 ```
+
+Compare the three screenshots before copying their PNGs and report into
+`assets/screenshots`. Then run `pwsh .\tools\Build-Release.ps1` to validate and
+package the delivery. For intentional artwork exports, `tools/build-brand-assets.ps1`
+can update the existing templates with `-MarketingOnly -OutputDirectory <review-folder>`
+without replacing the selected logo or icon family.
 
 ## License
 
