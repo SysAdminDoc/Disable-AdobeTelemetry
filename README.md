@@ -14,6 +14,16 @@
 </p>
 
 <p align="center">
+  <a href="https://ko-fi.com/X8K126YVER">
+    <img height="42" src="https://storage.ko-fi.com/cdn/kofi2.png?v=3" alt="Buy me a coffee on Ko-fi" />
+  </a>
+</p>
+
+<p align="center">
+  <sub><em>If this project helps you, a coffee helps me keep working on it.</em></sub>
+</p>
+
+<p align="center">
   <a href="https://github.com/SysAdminDoc/Disable-AdobeTelemetry/releases/download/v2.5.3/Disable-AdobeTelemetry-v2.5.3.zip"><strong>Download v2.5.3</strong></a>
   &nbsp;&bull;&nbsp;
   <a href="#start-safely">Start safely</a>
